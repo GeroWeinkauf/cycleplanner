@@ -22,4 +22,4 @@ ENV API_PORT=3000
 ENV API_HOST=0.0.0.0
 ENV VALHALLA_URL=http://valhalla:8002
 EXPOSE 3000
-CMD ["node", "dist/index.js"]
+CMD ["node", "dist/server.js"]
