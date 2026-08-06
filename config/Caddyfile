@@ -1,0 +1,26 @@
+# ──────────────────────────────────────────────
+# Caddy-Konfiguration – CyclePlanner
+# ──────────────────────────────────────────────
+
+# ┌──────────────────────────────────────────────────┐
+# │ TLS & Zugangsschutz (deaktiviert für local mode) │
+# │ Für Server-Betrieb in P6 aktivieren:             │
+# │                                                   │
+# │ tls internal                                      │
+# │ basicauth {                                       │
+# │   import CYCLEPLANNER_CREDENTIALS                 │
+# │ }                                                 │
+# └──────────────────────────────────────────────────┘
+
+:{$CADDY_PORT} {
+  # API-Proxy zum Backend (handle = Pfad bleibt erhalten)
+  handle /api/* {
+    reverse_proxy api:{$API_PORT}
+  }
+
+  # Statisches Frontend ausliefern
+  handle {
+    root * /srv
+    file_server
+  }
+}
