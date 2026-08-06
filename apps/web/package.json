@@ -11,9 +11,11 @@
   },
   "dependencies": {
     "@cycleplanner/shared": "workspace:*",
+    "@tanstack/react-query": "^5.101.4",
     "maplibre-gl": "^6.1.0",
     "react": "^19.1.0",
-    "react-dom": "^19.1.0"
+    "react-dom": "^19.1.0",
+    "zustand": "^5.0.14"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.1.4",

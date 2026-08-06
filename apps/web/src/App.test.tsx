@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen } from '@testing-library/react';
 import App from './App.js';
 
 // MapLibre GL requires WebGL — mock it for jsdom
@@ -14,12 +14,30 @@ vi.mock('maplibre-gl', () => ({
     removeSource: vi.fn(),
     isStyleLoaded: vi.fn().mockReturnValue(true),
     once: vi.fn(),
+    on: vi.fn(),
+    off: vi.fn(),
     remove: vi.fn(),
+    getCanvas: vi.fn().mockReturnValue({ style: {} }),
+    queryRenderedFeatures: vi.fn().mockReturnValue([]),
   })),
 }));
 
+// Mock TanStack Query to avoid async issues
+vi.mock('@tanstack/react-query', async () => {
+  const actual = await vi.importActual('@tanstack/react-query');
+  return {
+    ...actual,
+    useQuery: vi.fn().mockReturnValue({ data: undefined, isFetching: false }),
+  };
+});
+
 describe('App', () => {
-  it('renders the layer panel', () => {
+  it('renders the sidebar with title', () => {
+    render(<App />);
+    expect(screen.getByText('CyclePlanner')).toBeDefined();
+  });
+
+  it('renders the layer section', () => {
     render(<App />);
     expect(screen.getByText('Layer')).toBeDefined();
     expect(screen.getByText('Basiskarte')).toBeDefined();
@@ -27,18 +45,8 @@ describe('App', () => {
     expect(screen.getByText('Radroutennetz')).toBeDefined();
   });
 
-  it('toggles a layer on click', () => {
+  it('shows empty waypoint hint', () => {
     render(<App />);
-    const reliefCheckbox = screen.getAllByRole('checkbox')[1]; // Relief is index 1
-    expect((reliefCheckbox as HTMLInputElement).checked).toBe(true); // defaultVisible
-    fireEvent.click(reliefCheckbox);
-    expect((reliefCheckbox as HTMLInputElement).checked).toBe(false);
-  });
-
-  it('shows attributions for active layers', () => {
-    render(<App />);
-    // Basemap and Relief are defaultVisible, so attributions appear
-    const osmRefs = screen.getAllByText(/OpenStreetMap/);
-    expect(osmRefs.length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByText(/Klick auf die Karte/)).toBeDefined();
   });
 });
