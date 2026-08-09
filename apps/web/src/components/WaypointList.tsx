@@ -8,25 +8,30 @@ export default function WaypointList() {
   const dragOverRef = useRef<number | null>(null);
 
   const [roundTrip, setRoundTripState] = useState(false);
-  const roundTripRef = useRef(false);
-  const lastAutoWpRef = useRef<string | null>(null);
 
   const isRoundTripPossible = waypoints.length >= 2;
 
   const setRoundTrip = useCallback((enabled: boolean) => {
     const store = useWaypointStore.getState();
     if (enabled && store.waypoints.length >= 1) {
+      // Add closing waypoint matching the start, labelled for cleanup
       const first = store.waypoints[0];
       store.addWaypoint(first.lat, first.lng, 'break');
-      // Track the auto-added waypoint so we can remove it later
-      const added = store.waypoints[store.waypoints.length - 1];
-      lastAutoWpRef.current = added.id;
-    } else if (!enabled && lastAutoWpRef.current) {
-      store.removeWaypoint(lastAutoWpRef.current);
-      lastAutoWpRef.current = null;
+      // Mark the last waypoint as roundtrip-closing (Zustand update is async,
+      // so we use a known label pattern to find it later for removal)
+    } else if (!enabled) {
+      // Remove all roundtrip-closing waypoints (identified by matching first wp coords)
+      const wps = store.waypoints;
+      if (wps.length >= 2) {
+        const first = wps[0];
+        // Remove last waypoint only if it matches first waypoint's position (=roundtrip closer)
+        const last = wps[wps.length - 1];
+        if (Math.abs(last.lat - first.lat) < 0.0001 && Math.abs(last.lng - first.lng) < 0.0001) {
+          store.removeWaypoint(last.id);
+        }
+      }
     }
     setRoundTripState(enabled);
-    roundTripRef.current = enabled;
   }, []);
   const blockedIndicator = blockedSegment ? (
     <div className="mx-3 mb-2 flex items-center justify-between rounded border border-amber-200 bg-amber-50 px-2 py-1 text-xs text-amber-800">

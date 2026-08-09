@@ -9,6 +9,7 @@ import Attribution from './components/Attribution';
 import RouteHeader from './components/RouteHeader';
 import ElevationProfile from './components/ElevationProfile';
 import RouteSummary from './components/RouteSummary';
+import GpxExportSection from './components/GpxExportSection';
 import GpxImportButton from './components/GpxImportButton';
 import ValhallaStatus from './components/ValhallaStatus';
 import PoiDetail from './components/PoiDetail';
@@ -55,17 +56,19 @@ function AppInner() {
     <div className="relative flex h-screen w-screen flex-col overflow-hidden">
       <div className="relative flex flex-1 overflow-hidden">
         {/* ── Sidebar ─────────────────────────── */}
-        <div className="z-20 flex w-64 shrink-0 flex-col border-r border-gray-200 bg-white shadow-lg">
-          <div className="border-b border-gray-200 px-4 py-3">
-            <h1 className="text-lg font-bold text-gray-900">CyclePlanner</h1>
+        <div className="z-20 flex w-72 shrink-0 flex-col border-r border-gray-200 bg-gray-50/80 backdrop-blur">
+          <div className="border-b border-gray-200 bg-white px-4 py-3">
+            <h1 className="text-base font-bold tracking-tight text-gray-900">
+              <span className="text-blue-600">Cycle</span>Planner
+            </h1>
           </div>
-          <div className="flex-1 overflow-y-auto">
+          <div className="flex-1 overflow-y-auto divide-y divide-gray-200">
             <ProfilePanel />
             <ValhallaStatus />
             <WaypointList />
             <RouteSummary route={route} elevation={elevationData} analysis={analysis} />
+            <GpxExportSection route={route} />
           </div>
-
         </div>
 
         {/* ── Map area ─────────────────────────── */}
