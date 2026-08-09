@@ -14,6 +14,7 @@ import type {
 import { readFileSync, existsSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { parseGeometry, encodePolyline } from '../elevation/elevation-service.js';
 
 const VALHALLA_URL = process.env.VALHALLA_URL || 'http://127.0.0.1:8002';
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -148,16 +149,20 @@ async function fetchTraceAttributes(
  * Returns a full RouteAnalysis object with per-edge breakdown.
  */
 export async function analyzeRoute(
-  encodedPolyline: string,
+  geometry: string,
   profile: ProfileId,
 ): Promise<RouteAnalysis> {
-  if (!encodedPolyline || encodedPolyline.length === 0) {
+  if (!geometry || geometry.length === 0) {
     return emptyAnalysis();
   }
 
+  // Convert JSON geometry to Google-encoded polyline for Valhalla
+  const coords = parseGeometry(geometry);
+  const encodedPolyline = encodePolyline(coords);
+
   let trace: TraceAttributesResponse;
   try {
-    trace = await fetchTraceAttributes(encodedPolyline);
+    trace = await fetchTraceAttributes(encodedPolyline);line);
   } catch {
     return emptyAnalysis();
   }

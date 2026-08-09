@@ -1,6 +1,7 @@
 import { useState, useCallback } from 'react';
 import { useRoundTripQuery } from '../hooks/useRoundTripQuery';
 import { useWaypointStore } from '../store/useWaypointStore';
+import { decodePolyline } from '../lib/polyline';
 import type { RouteResponse, RoundTripVariant } from '@cycleplanner/shared';
 
 const DISTANCE_PRESETS = [30, 50, 80, 120];
@@ -25,16 +26,33 @@ export default function RoundTripControls() {
 
   const handleSelectVariant = useCallback(
     (variant: RoundTripVariant) => {
-      // Clear existing waypoints and replace with round trip result
-      // For now, we just trigger a route display
-      // In a full implementation, the variant geometry would become the active route
-      // and waypoints would be derived from the round trip
       clearWaypoints();
-      // Set the start point as a waypoint
-      if (origin) {
-        addWaypoint(origin.lat, origin.lng, 'break');
-        // Add a second waypoint to make it a valid route
-        addWaypoint(origin.lat + 0.01, origin.lng + 0.01, 'break');
+      if (!variant.geometry) return;
+
+      try {
+        // Try JSON array first, then Google polyline
+        let coords: Array<[number, number]>;
+        if (variant.geometry.startsWith('[[') || variant.geometry.startsWith('[')) {
+          coords = JSON.parse(variant.geometry) as Array<[number, number]>;
+        } else {
+          coords = decodePolyline(variant.geometry);
+        }
+        if (coords.length < 2) return;
+
+        // Add waypoints along the route
+        const n = coords.length;
+        const numWaypoints = Math.min(5, n - 1);
+        const step = Math.max(1, Math.floor((n - 1) / (numWaypoints - 1)));
+
+        for (let i = 0; i < numWaypoints; i++) {
+          const idx = Math.min(i * step, n - 1);
+          // coords are [lng, lat], addWaypoint expects (lat, lng)
+          addWaypoint(coords[idx][1], coords[idx][0], 'break');
+        }
+      } catch {
+        if (origin) {
+          addWaypoint(origin.lat, origin.lng, 'break');
+        }
       }
     },
     [clearWaypoints, addWaypoint, origin],

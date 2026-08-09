@@ -1233,15 +1233,12 @@ export function buildApp() {
 }
 
 /**
- * Merge multiple Valhalla-encoded polyline strings into one.
- * Each leg's shape is encoded relative to (0,0) — concatenating
- * strings directly would produce garbage. Instead, decode each,
- * accumulate coordinates, and re-encode as a single polyline.
+ * Merge multiple Valhalla-encoded polyline strings into a JSON coordinate array.
+ * Each leg's shape is encoded relative to (0,0).
+ * Returns JSON string of [[lng,lat],...] for consistency with the route endpoint.
  */
 function mergeEncodedPolylines(shapes: string[]): string {
-  if (shapes.length === 0) return '';
-
-  let allCoords: Array<[number, number]> = [];
+  const allCoords: Array<[number, number]> = [];
 
   for (const shape of shapes) {
     if (!shape) continue;
@@ -1265,46 +1262,11 @@ function mergeEncodedPolylines(shapes: string[]): string {
       const dlng = result & 1 ? ~(result >> 1) : result >> 1;
       lng += dlng;
 
-      allCoords.push([lng, lat]);
+      allCoords.push([lng / 1e6, lat / 1e6]);
     }
   }
 
-  // Re-encode all coordinates as a single polyline
-  let prevLat = 0, prevLng = 0;
-  let encoded = '';
-
-  for (const [lng, lat] of allCoords) {
-    const dlat = lat - prevLat;
-    const dlng = lng - prevLng;
-    prevLat = lat;
-    prevLng = lng;
-
-    // Encode delta
-    encoded += encodeSignedNumber(dlat);
-    encoded += encodeSignedNumber(dlng);
-  }
-
-  return encoded;
-}
-
-/** Encode a signed integer for Google polyline format */
-function encodeSignedNumber(num: number): string {
-  // Use BigInt-safe approach: convert negative to two's complement manually
-  let sgnNum: number;
-  if (num < 0) {
-    sgnNum = ((-num) << 1) - 1;
-  } else {
-    sgnNum = num << 1;
-  }
-  // Ensure positive
-  if (sgnNum < 0) sgnNum = (sgnNum >>> 0); // Convert to unsigned 32-bit
-  let result = '';
-  while (sgnNum >= 0x20) {
-    result += String.fromCharCode((0x20 | (sgnNum & 0x1f)) + 63);
-    sgnNum = Math.floor(sgnNum / 32); // Use division instead of >> for large numbers
-  }
-  result += String.fromCharCode(sgnNum + 63);
-  return result;
+  return JSON.stringify(allCoords);
 }
 
 function escapeXml(str: string): string {

@@ -136,8 +136,8 @@ function lngLatToPixel(lng: number, lat: number, zoom: number): { px: number; py
 function terrariumToElevation(r: number, g: number, b: number): number {
   const raw = r * 256 + g + b / 256 - 32768;
   // Clamp to realistic terrestrial elevations (Dead Sea = -430m, Everest = 8848m)
-  if (raw < -500 || raw > 9000) return NaN;
-  return raw;
+  // Out-of-range values (no-data markers from Terrarium) get clamped instead of NaN
+  return Math.max(-500, Math.min(9000, raw));
 }
 
 /**
@@ -431,13 +431,65 @@ export function computeMetrics(
 // ---- Main service ----
 
 /**
+ * Parse geometry string — accepts both JSON coordinate arrays and Google polyline.
+ * Exported for use by other services (analysis).
+ */
+export function parseGeometry(input: string): Array<[number, number]> {
+  const trimmed = input.trim();
+  if (trimmed.startsWith('[[') || trimmed.startsWith('[')) {
+    // JSON coordinate array: [[lng,lat],...] or [lng,lat,lng,lat,...]
+    const parsed = JSON.parse(trimmed) as Array<[number, number] | number>;
+    if (parsed.length > 0 && Array.isArray(parsed[0])) {
+      return parsed as Array<[number, number]>;
+    }
+    // Flat array: [lng,lat,lng,lat,...]
+    const coords: Array<[number, number]> = [];
+    for (let i = 0; i < parsed.length - 1; i += 2) {
+      coords.push([parsed[i] as number, parsed[i + 1] as number]);
+    }
+    return coords;
+  }
+  // Google encoded polyline
+  return decodePolyline(trimmed);
+}
+
+/**
+ * Encode coordinates to Google polyline format (for Valhalla APIs).
+ */
+export function encodePolyline(coords: Array<[number, number]>): string {
+  let result = '';
+  let prevLat = 0;
+  let prevLng = 0;
+  for (const [lng, lat] of coords) {
+    const dlat = Math.round((lat - prevLat) * 1e6);
+    const dlng = Math.round((lng - prevLng) * 1e6);
+    prevLat = lat;
+    prevLng = lng;
+    result += encodeNumber(dlat);
+    result += encodeNumber(dlng);
+  }
+  return result;
+}
+
+function encodeNumber(num: number): string {
+  let n = num < 0 ? ~(num << 1) : num << 1;
+  let s = '';
+  while (n >= 0x20) {
+    s += String.fromCharCode((0x20 | (n & 0x1f)) + 63);
+    n >>= 5;
+  }
+  s += String.fromCharCode(n + 63);
+  return s;
+}
+
+/**
  * Compute the full elevation profile for a route.
  * This is the main entry point called by the API endpoint.
  */
 export async function computeElevationProfile(
   encodedPolyline: string,
 ): Promise<ElevationProfile> {
-  const coords = decodePolyline(encodedPolyline);
+  const coords = parseGeometry(encodedPolyline);
 
   if (coords.length === 0) {
     return {
@@ -511,12 +563,9 @@ export async function computeElevationProfile(
   }
 
   // Fetch elevations for all sample points (batched by tile)
-  let rawElevations = await getElevationsBatch(
+  const rawElevations = await getElevationsBatch(
     sampleCoords.map((c) => ({ lng: c.lng, lat: c.lat })),
   );
-
-  // Fix NaN values by interpolating from neighbors
-  rawElevations = fillGaps(rawElevations);
 
   // Smooth elevations
   const smoothedElevations = smoothMedian(rawElevations, SMOOTH_WINDOW);
