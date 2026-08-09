@@ -162,7 +162,7 @@ export async function analyzeRoute(
 
   let trace: TraceAttributesResponse;
   try {
-    trace = await fetchTraceAttributes(encodedPolyline);line);
+    trace = await fetchTraceAttributes(encodedPolyline);
   } catch {
     return emptyAnalysis();
   }
