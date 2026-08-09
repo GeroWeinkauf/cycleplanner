@@ -22,7 +22,7 @@ interface Props {
  */
 export default function PoiControls({ bbox, corridorGeometry, onPoisLoaded, onPoiClick }: Props) {
   const [enabledCategories, setEnabledCategories] = useState<Set<PoiCategory>>(
-    new Set(POI_CATEGORIES.map((c) => c.key)),
+    new Set((POI_CATEGORIES || []).map((c) => c.key)),
   );
   const [corridorMode, setCorridorMode] = useState(false);
   const [limit] = useState(150);
@@ -40,8 +40,8 @@ export default function PoiControls({ bbox, corridorGeometry, onPoisLoaded, onPo
 
   const toggleAll = useCallback(() => {
     setEnabledCategories((prev) => {
-      if (prev.size === POI_CATEGORIES.length) return new Set();
-      return new Set(POI_CATEGORIES.map((c) => c.key));
+      if (prev.size === (POI_CATEGORIES || []).length) return new Set();
+      return new Set((POI_CATEGORIES || []).map((c) => c.key));
     });
   }, []);
 
@@ -113,7 +113,7 @@ export default function PoiControls({ bbox, corridorGeometry, onPoisLoaded, onPo
               onClick={toggleAll}
               className="rounded px-1.5 py-0.5 text-[10px] text-gray-500 hover:bg-gray-100"
             >
-              {enabledCategories.size === POI_CATEGORIES.length ? 'Alle aus' : 'Alle an'}
+              {enabledCategories.size === (POI_CATEGORIES || []).length ? 'Alle aus' : 'Alle an'}
             </button>
           </div>
         </div>
@@ -124,9 +124,9 @@ export default function PoiControls({ bbox, corridorGeometry, onPoisLoaded, onPo
 
         {/* Category toggles */}
         <div className="mt-1 flex flex-wrap gap-0.5">
-          {POI_CATEGORIES.map((cat) => {
+          {(POI_CATEGORIES || []).map((cat) => {
             const active = enabledCategories.has(cat.key);
-            const count = pois.filter((p) => p.category === cat.key).length;
+            const count = (pois || []).filter((p) => p.category === cat.key).length;
             return (
               <button
                 key={cat.key}
@@ -156,7 +156,7 @@ export default function PoiControls({ bbox, corridorGeometry, onPoisLoaded, onPo
                 className="flex w-full items-center gap-1.5 rounded px-1 py-0.5 text-left text-[10px] hover:bg-gray-50"
               >
                 <span className="shrink-0">
-                  {POI_CATEGORIES.find((c) => c.key === poi.category)?.icon || '📍'}
+                  {(POI_CATEGORIES || []).find((c) => c.key === poi.category)?.icon || '📍'}
                 </span>
                 <span className="min-w-0 flex-1 truncate text-gray-700">
                   {poi.name || poi.category}
