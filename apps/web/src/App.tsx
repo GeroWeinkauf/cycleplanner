@@ -1,7 +1,8 @@
 import { useState, useCallback, useRef } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import MapView from './components/Map';
-import LayerPanel from './components/LayerPanel';
+import MapLayerPanel from './components/MapLayerPanel';
+import { LAYERS } from './layers/registry';
 import ProfilePanel from './components/ProfilePanel';
 import WaypointList from './components/WaypointList';
 import Attribution from './components/Attribution';
@@ -14,7 +15,6 @@ import PoiDetail from './components/PoiDetail';
 import { useRouteQuery } from './hooks/useRouteQuery';
 import { useElevationQuery } from './hooks/useElevationQuery';
 import { useRouteAnalysis } from './hooks/useRouteAnalysis';
-import { LAYERS } from './layers/registry';
 import type { ElevationPoint, Poi } from '@cycleplanner/shared';
 
 const queryClient = new QueryClient();
@@ -71,9 +71,7 @@ function AppInner() {
               onPoiClick={(poi) => setSelectedPoi(poi)}
             />
           </div>
-          <div className="border-t border-gray-200">
-            <LayerPanel activeLayers={activeLayers} onToggle={handleToggle} />
-          </div>
+
         </div>
 
         {/* ── Map area ─────────────────────────── */}
@@ -87,6 +85,7 @@ function AppInner() {
             pois={poiData}
           />
           <RouteHeader route={route} isFetching={isFetching} />
+          <MapLayerPanel activeLayers={activeLayers} onToggle={handleToggle} />
           <Attribution activeLayers={activeLayers} />
         </div>
       </div>

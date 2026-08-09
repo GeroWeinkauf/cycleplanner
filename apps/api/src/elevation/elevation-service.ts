@@ -131,9 +131,13 @@ function lngLatToPixel(lng: number, lat: number, zoom: number): { px: number; py
 /**
  * Decode a Terrarium-encoded elevation value from RGBA pixel data.
  * Formula: elevation (meters) = R * 256 + G + B / 256 - 32768
+ * Clamped to a realistic range for our use case.
  */
 function terrariumToElevation(r: number, g: number, b: number): number {
-  return r * 256 + g + b / 256 - 32768;
+  const raw = r * 256 + g + b / 256 - 32768;
+  // Clamp to realistic terrestrial elevations (Dead Sea = -430m, Everest = 8848m)
+  if (raw < -500 || raw > 9000) return NaN;
+  return raw;
 }
 
 /**
@@ -210,29 +214,37 @@ async function getElevationsBatch(
     }
   }
 
-  // Process each tile
+  // Process each tile (gracefully handle fetch failures)
   const tilePromises = Array.from(tileGroups.entries()).map(async ([_key, indices]) => {
     const firstPt = points[indices[0]];
     const tileCoords = lngLatToTile(firstPt.lng, firstPt.lat, zoom);
     let tile = tileCache.get(tileCoords.x, tileCoords.y, zoom);
 
     if (!tile) {
-      const decoded = await fetchTile(tileCoords.x, tileCoords.y, zoom);
-      const elevations = new Float32Array(TILE_SIZE * TILE_SIZE);
-      for (let i = 0; i < TILE_SIZE * TILE_SIZE; i++) {
-        const r = decoded.data[i * 4];
-        const g = decoded.data[i * 4 + 1];
-        const b = decoded.data[i * 4 + 2];
-        elevations[i] = terrariumToElevation(r, g, b);
+      try {
+        const decoded = await fetchTile(tileCoords.x, tileCoords.y, zoom);
+        const elevations = new Float32Array(TILE_SIZE * TILE_SIZE);
+        for (let i = 0; i < TILE_SIZE * TILE_SIZE; i++) {
+          const r = decoded.data[i * 4];
+          const g = decoded.data[i * 4 + 1];
+          const b = decoded.data[i * 4 + 2];
+          elevations[i] = terrariumToElevation(r, g, b);
+        }
+        tile = {
+          x: tileCoords.x,
+          y: tileCoords.y,
+          zoom,
+          elevations,
+          fetchedAt: Date.now(),
+        };
+        tileCache.set(tile);
+      } catch {
+        // Tile fetch failed — leave NaN values, they'll be filled by gap interpolation
+        for (const idx of indices) {
+          results[idx] = NaN;
+        }
+        return;
       }
-      tile = {
-        x: tileCoords.x,
-        y: tileCoords.y,
-        zoom,
-        elevations,
-        fetchedAt: Date.now(),
-      };
-      tileCache.set(tile);
     }
 
     for (const idx of indices) {
@@ -244,6 +256,64 @@ async function getElevationsBatch(
 
   await Promise.all(tilePromises);
   return results;
+}
+
+// ---- Gap filling ----
+
+/**
+ * Replace NaN values by interpolating from the nearest valid neighbors.
+ * Leading/trailing NaNs are filled with the first/last valid value.
+ */
+function fillGaps(values: number[]): number[] {
+  if (values.length === 0) return [];
+
+  const result = [...values];
+
+  // Forward pass: fill from left
+  let lastValid = NaN;
+  for (let i = 0; i < result.length; i++) {
+    if (!isNaN(result[i])) {
+      lastValid = result[i];
+    } else if (!isNaN(lastValid)) {
+      result[i] = lastValid;
+    }
+  }
+
+  // Backward pass: fill from right (for leading NaNs)
+  let nextValid = NaN;
+  for (let i = result.length - 1; i >= 0; i--) {
+    if (!isNaN(values[i])) {
+      nextValid = values[i];
+    } else if (!isNaN(nextValid)) {
+      result[i] = nextValid;
+    }
+  }
+
+  // If all values were NaN, return zeros
+  if (isNaN(result[0])) {
+    return new Array(values.length).fill(0);
+  }
+
+  // Linear interpolation for interior gaps (more accurate than copy)
+  let gapStart = -1;
+  for (let i = 0; i < result.length; i++) {
+    if (isNaN(values[i])) {
+      if (gapStart === -1) gapStart = i;
+    } else if (gapStart !== -1) {
+      // End of a gap - interpolate
+      const gapEnd = i - 1;
+      const beforeVal = gapStart > 0 ? result[gapStart - 1] : result[i];
+      const afterVal = result[i];
+      const gapLen = gapEnd - gapStart + 1;
+      for (let j = 0; j < gapLen; j++) {
+        const frac = (j + 1) / (gapLen + 1);
+        result[gapStart + j] = beforeVal + (afterVal - beforeVal) * frac;
+      }
+      gapStart = -1;
+    }
+  }
+
+  return result;
 }
 
 // ---- Smoothing ----
@@ -441,9 +511,12 @@ export async function computeElevationProfile(
   }
 
   // Fetch elevations for all sample points (batched by tile)
-  const rawElevations = await getElevationsBatch(
+  let rawElevations = await getElevationsBatch(
     sampleCoords.map((c) => ({ lng: c.lng, lat: c.lat })),
   );
+
+  // Fix NaN values by interpolating from neighbors
+  rawElevations = fillGaps(rawElevations);
 
   // Smooth elevations
   const smoothedElevations = smoothMedian(rawElevations, SMOOTH_WINDOW);
