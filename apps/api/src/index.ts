@@ -211,10 +211,28 @@ export function buildApp() {
     async (_req, reply) => {
       try {
         const { execSync } = await import('node:child_process');
-        // Try starting valhalla via docker compose
-        const cwd = process.cwd();
+        const { existsSync } = await import('node:fs');
+
+        // Find docker-compose.yml: try COMPOSE_DIR, project root, current dir
+        const projectRoot = resolve(__dirname, '../../..');
+        const candidates = [
+          resolve(process.env.COMPOSE_DIR || '', 'docker-compose.yml'),
+          resolve(projectRoot, 'docker-compose.yml'),
+          resolve(process.cwd(), 'docker-compose.yml'),
+        ];
+        let composeFile = '';
+        for (const c of candidates) {
+          if (existsSync(c)) { composeFile = c; break; }
+        }
+        if (!composeFile) {
+          return reply.status(500).send({
+            ok: false,
+            message: 'docker-compose.yml nicht gefunden. Bitte Valhalla manuell starten: docker compose up -d valhalla',
+          });
+        }
+
         execSync('docker compose up -d valhalla', {
-          cwd: process.env.COMPOSE_DIR || cwd,
+          cwd: resolve(composeFile, '..'),
           timeout: 30000,
           stdio: 'pipe',
         });
