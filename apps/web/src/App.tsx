@@ -104,6 +104,16 @@ function AppInner() {
         onHover={handleElevationHover}
         onClick={handleElevationClick}
         onReset={() => setHighlightDistance(null)}
+        onZoomToSegment={(fromKm, toKm) => {
+          setHighlightDistance(null);
+          if (elevationData) {
+            const pts = elevationData.points.filter(p => p.distanceKm >= fromKm && p.distanceKm <= toKm);
+            if (pts.length > 0) {
+              const mid = pts[Math.floor(pts.length / 2)];
+              mapFlyToRef.current?.(mid.lng, mid.lat);
+            }
+          }
+        }}
         highlightDistance={highlightDistance}
       />
 
