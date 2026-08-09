@@ -227,18 +227,34 @@ export function buildApp() {
         if (!composeFile) {
           return reply.status(500).send({
             ok: false,
-            message: 'docker-compose.yml nicht gefunden. Bitte Valhalla manuell starten: docker compose up -d valhalla',
+            message: 'docker-compose.yml nicht gefunden in: ' + candidates.join(', '),
           });
         }
 
-        execSync('docker compose up -d valhalla', {
-          cwd: resolve(composeFile, '..'),
+        const cmd = 'docker compose -f "' + composeFile + '" up -d valhalla';
+        execSync(cmd, {
           timeout: 30000,
           stdio: 'pipe',
         });
         return reply.send({ ok: true, message: 'Valhalla wird gestartet...' });
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
+      } catch (err: unknown) {
+        let msg = 'Unbekannter Fehler';
+        if (err instanceof Error) {
+          msg = err.message;
+          // If execSync threw, extract stderr for the real error
+          const execErr = err as { stderr?: Buffer | string; stdout?: Buffer | string };
+          if (execErr.stderr) {
+            const stderr = typeof execErr.stderr === 'string'
+              ? execErr.stderr
+              : execErr.stderr.toString('utf-8');
+            msg = stderr.trim() || msg;
+          }
+          // If still generic, show status code
+          const execErr2 = err as { status?: number };
+          if (execErr2.status && msg === err.message) {
+            msg = 'Exit-Code ' + execErr2.status + ': ' + msg;
+          }
+        }
         return reply.status(500).send({
           ok: false,
           message: 'Konnte Valhalla nicht starten: ' + msg,
