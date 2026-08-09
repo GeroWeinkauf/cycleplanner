@@ -1,0 +1,46 @@
+# ───────────────────────────────────────────────────────────
+# Custom Valhalla Docker Image (P5-2)
+#
+# Extends the official Valhalla image with:
+#   1. Modified bicycle cost function (popularity factor)
+#   2. Additional build flags for larger regions
+#   3. Pre-configured for CyclePlanner tuning levels
+#
+# Build: ./scripts/build-valhalla.sh
+# ───────────────────────────────────────────────────────────
+
+FROM ghcr.io/valhalla/valhalla:3.5.0 AS base
+
+# ── Build stage: compile custom cost function ──────────────
+FROM base AS builder
+
+# Copy the modified source files
+COPY valhalla-src/src/sif/bicyclecost.cc /usr/local/src/valhalla/src/sif/bicyclecost.cc
+COPY valhalla-src/src/sif/autocost.cc     /usr/local/src/valhalla/src/sif/autocost.cc
+
+# Rebuild with our modifications
+WORKDIR /usr/local/src/valhalla/build
+RUN cmake .. -DCMAKE_BUILD_TYPE=Release -DENABLE_TOOLS=ON \
+    && make -j$(nproc) \
+    && make install
+
+# ── Runtime stage ─────────────────────────────────────────
+FROM base AS runtime
+
+# Copy built binaries
+COPY --from=builder /usr/local/bin/valhalla_service /usr/local/bin/
+COPY --from=builder /usr/local/lib/libvalhalla* /usr/local/lib/
+
+# Copy our enhanced configuration
+COPY valhalla-custom.json /custom_files/valhalla.json
+
+# Default environment
+ENV use_tiles_ignore_pbf=True
+ENV server_threads=4
+ENV build_elevation=True
+ENV build_admins=True
+ENV build_time_zones=False
+ENV build_tar=True
+
+EXPOSE 8002
+ENTRYPOINT ["valhalla_service", "/custom_files/valhalla.json"]

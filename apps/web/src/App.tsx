@@ -1,12 +1,20 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import MapCanvas from './components/Map';
+import MapView from './components/Map';
 import LayerPanel from './components/LayerPanel';
+import ProfilePanel from './components/ProfilePanel';
 import WaypointList from './components/WaypointList';
 import Attribution from './components/Attribution';
 import RouteHeader from './components/RouteHeader';
+import ElevationProfile from './components/ElevationProfile';
+import TourToolbar from './components/TourToolbar';
+import PoiControls from './components/PoiControls';
+import PoiDetail from './components/PoiDetail';
 import { useRouteQuery } from './hooks/useRouteQuery';
+import { useElevationQuery } from './hooks/useElevationQuery';
+import { useRouteAnalysis } from './hooks/useRouteAnalysis';
 import { LAYERS } from './layers/registry';
+import type { ElevationPoint, Poi } from '@cycleplanner/shared';
 
 const queryClient = new QueryClient();
 
@@ -14,6 +22,12 @@ function AppInner() {
   const [activeLayers, setActiveLayers] = useState<Set<string>>(
     () => new Set(LAYERS.filter((l) => l.defaultVisible).map((l) => l.id)),
   );
+
+  const [highlightDistance, setHighlightDistance] = useState<number | null>(null);
+  const [currentBbox, setCurrentBbox] = useState<string | null>(null);
+  const [poiData, setPoiData] = useState<Poi[] | null>(null);
+  const [selectedPoi, setSelectedPoi] = useState<Poi | null>(null);
+  const mapFlyToRef = useRef<((lng: number, lat: number) => void) | null>(null);
 
   const handleToggle = useCallback((layerId: string) => {
     setActiveLayers((prev) => {
@@ -24,29 +38,71 @@ function AppInner() {
     });
   }, []);
 
-  const { data: route, isFetching } = useRouteQuery('Trekking');
+  const { data: route, isFetching } = useRouteQuery();
+  const { data: elevationData, isLoading: elevationLoading } = useElevationQuery(route?.geometry);
+  const { data: analysis } = useRouteAnalysis(route?.geometry);
+
+  const handleElevationHover = useCallback((point: ElevationPoint | null) => {
+    setHighlightDistance(point?.distanceKm ?? null);
+  }, []);
+
+  const handleElevationClick = useCallback((point: ElevationPoint) => {
+    mapFlyToRef.current?.(point.lng, point.lat);
+  }, []);
 
   return (
-    <div className="relative flex h-screen w-screen overflow-hidden">
-      {/* ── Sidebar ─────────────────────────── */}
-      <div className="z-20 flex w-64 shrink-0 flex-col border-r border-gray-200 bg-white shadow-lg">
-        <div className="border-b border-gray-200 px-4 py-3">
-          <h1 className="text-lg font-bold text-gray-900">CyclePlanner</h1>
+    <div className="relative flex h-screen w-screen flex-col overflow-hidden">
+      <div className="relative flex flex-1 overflow-hidden">
+        {/* ── Sidebar ─────────────────────────── */}
+        <div className="z-20 flex w-64 shrink-0 flex-col border-r border-gray-200 bg-white shadow-lg">
+          <div className="border-b border-gray-200 px-4 py-3">
+            <h1 className="text-lg font-bold text-gray-900">CyclePlanner</h1>
+          </div>
+          <div className="flex-1 overflow-y-auto">
+            <ProfilePanel />
+            <WaypointList />
+            <TourToolbar route={route} />
+            <PoiControls
+              bbox={currentBbox}
+              corridorGeometry={route?.geometry}
+              onPoisLoaded={setPoiData}
+              onPoiClick={(poi) => setSelectedPoi(poi)}
+            />
+          </div>
+          <div className="border-t border-gray-200">
+            <LayerPanel activeLayers={activeLayers} onToggle={handleToggle} />
+          </div>
         </div>
-        <div className="flex-1 overflow-y-auto">
-          <WaypointList />
-        </div>
-        <div className="border-t border-gray-200">
-          <LayerPanel activeLayers={activeLayers} onToggle={handleToggle} />
+
+        {/* ── Map area ─────────────────────────── */}
+        <div className="relative flex-1">
+          <MapView
+            route={route}
+            isFetching={isFetching}
+            highlightDistance={highlightDistance}
+            onMapFlyTo={(fn) => { mapFlyToRef.current = fn; }}
+            onBboxChange={setCurrentBbox}
+            pois={poiData}
+          />
+          <RouteHeader route={route} isFetching={isFetching} />
+          <Attribution activeLayers={activeLayers} />
         </div>
       </div>
 
-      {/* ── Map area ─────────────────────────── */}
-      <div className="relative flex-1">
-        <MapCanvas activeLayers={activeLayers} route={route} isFetching={isFetching} />
-        <RouteHeader route={route} isFetching={isFetching} />
-        <Attribution activeLayers={activeLayers} />
-      </div>
+      <ElevationProfile
+        data={elevationData}
+        surfaceData={analysis}
+        isLoading={elevationLoading}
+        onHover={handleElevationHover}
+        onClick={handleElevationClick}
+        highlightDistance={highlightDistance}
+      />
+
+      <PoiDetail
+        poi={selectedPoi}
+        onClose={() => setSelectedPoi(null)}
+        onFlyTo={(lng, lat) => mapFlyToRef.current?.(lng, lat)}
+      />
     </div>
   );
 }

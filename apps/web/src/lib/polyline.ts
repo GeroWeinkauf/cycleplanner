@@ -1,8 +1,22 @@
 /**
- * Decode a Valhalla-encoded polyline string to an array of [lng, lat] pairs.
- * Valhalla uses Google's polyline encoding with precision 6.
+ * Decode a polyline string (or JSON coordinate array) to [lng, lat] pairs.
+ * Supports both Valhalla-encoded polyline strings (Google format, precision 6)
+ * and JSON arrays of [lng, lat] coordinate pairs.
  */
 export function decodePolyline(str: string): Array<[number, number]> {
+  if (!str) return [];
+
+  // New format: JSON array of [lng, lat] pairs
+  if (str.startsWith('[[') || str.startsWith('[')) {
+    try {
+      const parsed = JSON.parse(str);
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        return parsed as Array<[number, number]>;
+      }
+    } catch { /* fall through to legacy decoding */ }
+  }
+
+  // Legacy format: Valhalla-encoded polyline
   const coords: Array<[number, number]> = [];
   let index = 0;
   let lat = 0;

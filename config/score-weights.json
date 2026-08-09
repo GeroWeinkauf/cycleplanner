@@ -1,0 +1,35 @@
+{
+  "comment": "Quality score weights per profile. 0 = irrelevant, 1 = maximum importance. Each sub-score is multiplied by its weight before summing.",
+  "Tourenrad": {
+    "surfaceQuality": 0.3,
+    "bikeInfrastructure": 0.25,
+    "trafficExposure": 0.2,
+    "stopDensity": 0.1,
+    "elevationComfort": 0.1,
+    "amenityDensity": 0.05
+  },
+  "Rennrad": {
+    "surfaceQuality": 0.4,
+    "bikeInfrastructure": 0.1,
+    "trafficExposure": 0.15,
+    "stopDensity": 0.05,
+    "elevationComfort": 0.25,
+    "amenityDensity": 0.05
+  },
+  "Gravel": {
+    "surfaceQuality": 0.1,
+    "bikeInfrastructure": 0.15,
+    "trafficExposure": 0.2,
+    "stopDensity": 0.1,
+    "elevationComfort": 0.25,
+    "amenityDensity": 0.2
+  },
+  "MTB": {
+    "surfaceQuality": 0.05,
+    "bikeInfrastructure": 0.05,
+    "trafficExposure": 0.05,
+    "stopDensity": 0.05,
+    "elevationComfort": 0.5,
+    "amenityDensity": 0.3
+  }
+}

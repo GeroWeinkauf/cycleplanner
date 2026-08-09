@@ -1,0 +1,115 @@
+{
+  "profiles": {
+    "Tourenrad": {
+      "label": "Tourenrad",
+      "costing": {
+        "bicycle_type": "Hybrid",
+        "cycling_speed": 20,
+        "use_hills": 0.35,
+        "use_ferry": 0.5,
+        "avoid_bad_surfaces": 0.6,
+        "use_living_streets": 0.6,
+        "service_penalty": 0,
+        "maneuver_penalty": 5,
+        "gate_penalty": 300,
+        "driveway_penalty": 300,
+        "alley_factor": 1.0,
+        "country_crossing_penalty": 0,
+        "use_trails": 0.5
+      },
+      "implications": {
+        "exclude_unpaved": false,
+        "surface_strictness": 60,
+        "street_avoidance": 15,
+        "ferry_allowance": "medium"
+      },
+      "description": "Tourenrad – ausgewogen, zieht auf das Radwegenetz."
+    },
+    "Rennrad": {
+      "label": "Rennrad",
+      "costing": {
+        "bicycle_type": "Road",
+        "cycling_speed": 27,
+        "use_hills": 0.5,
+        "use_ferry": 0.3,
+        "avoid_bad_surfaces": 0.95,
+        "use_living_streets": 0.4,
+        "service_penalty": 0,
+        "maneuver_penalty": 10,
+        "gate_penalty": 500,
+        "driveway_penalty": 500,
+        "alley_factor": 1.0,
+        "country_crossing_penalty": 0,
+        "use_trails": 0.3
+      },
+      "implications": {
+        "exclude_unpaved": true,
+        "surface_strictness": 95,
+        "street_avoidance": 50,
+        "ferry_allowance": "low"
+      },
+      "description": "Rennrad – Schotter per Definition ausgeschlossen."
+    },
+    "Gravel": {
+      "label": "Gravel",
+      "costing": {
+        "bicycle_type": "Cross",
+        "cycling_speed": 21,
+        "use_hills": 0.5,
+        "use_ferry": 0.5,
+        "avoid_bad_surfaces": 0.15,
+        "use_living_streets": 0.5,
+        "service_penalty": 0,
+        "maneuver_penalty": 3,
+        "gate_penalty": 100,
+        "driveway_penalty": 100,
+        "alley_factor": 1.0,
+        "country_crossing_penalty": 0,
+        "use_trails": 0.75
+      },
+      "implications": {
+        "exclude_unpaved": false,
+        "surface_strictness": 15,
+        "street_avoidance": 20,
+        "ferry_allowance": "medium"
+      },
+      "description": "Gravel – unbefestigte Abschnitte erwünscht, geringe Oberflächenstrenge."
+    },
+    "MTB": {
+      "label": "MTB",
+      "costing": {
+        "bicycle_type": "Mountain",
+        "cycling_speed": 16,
+        "use_hills": 0.8,
+        "use_ferry": 0.5,
+        "avoid_bad_surfaces": 0.05,
+        "use_living_streets": 0.5,
+        "service_penalty": 0,
+        "maneuver_penalty": 2,
+        "gate_penalty": 50,
+        "driveway_penalty": 50,
+        "alley_factor": 1.0,
+        "country_crossing_penalty": 0,
+        "use_trails": 1
+      },
+      "implications": {
+        "exclude_unpaved": false,
+        "surface_strictness": 5,
+        "street_avoidance": 10,
+        "ferry_allowance": "medium"
+      },
+      "description": "Mountainbike – hohe Steigungsbereitschaft, alles fahrbar."
+    }
+  },
+  "sliderDefaults": {
+    "use_hills": { "label": "Steigungsbereitschaft", "min": 0, "max": 1, "step": 0.05 },
+    "street_avoidance": { "label": "Straßenmeidung", "min": 0, "max": 1, "step": 0.05 },
+    "avoid_bad_surfaces": { "label": "Oberflächenstrenge", "min": 0, "max": 1, "step": 0.05 },
+    "use_living_streets": { "label": "Wohnstraßen-Präferenz", "min": 0, "max": 1, "step": 0.05 },
+    "use_trails": { "label": "Trail-Präferenz", "min": 0, "max": 1, "step": 0.05 },
+    "use_ferry": { "label": "Fähren-Präferenz", "min": 0, "max": 1, "step": 0.05 },
+    "maneuver_penalty": { "label": "Abzweig-Strafe", "min": 0, "max": 50, "step": 1 },
+    "gate_penalty": { "label": "Tor-Strafe", "min": 0, "max": 1000, "step": 10 },
+    "cycling_speed": { "label": "Reisegeschwindigkeit km/h", "min": 10, "max": 35, "step": 1 }
+  }
+}

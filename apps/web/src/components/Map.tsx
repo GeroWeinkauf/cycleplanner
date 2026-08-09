@@ -1,322 +1,232 @@
-import { useEffect, useRef, type MutableRefObject } from 'react';
-import { Map as MapLibreMap, type Map, type GeoJSONSource, type MapMouseEvent, type MapLayerMouseEvent } from 'maplibre-gl';
-import 'maplibre-gl/dist/maplibre-gl.css';
-
-import { LAYERS } from '../layers/registry';
-import { desaturatedStyle } from '../layers/basemap';
+import { useEffect, useRef } from 'react';
+import L from 'leaflet';
+import 'leaflet/dist/leaflet.css';
 import { useWaypointStore } from '../store/useWaypointStore';
-import type { RouteResponse } from '@cycleplanner/shared';
 import { decodePolyline, nearestPointOnLine } from '../lib/polyline';
+import type { RouteResponse } from '@cycleplanner/shared';
 
-const BLANK_STYLE = {
-  version: 8 as const,
-  sources: {},
-  layers: [{ id: 'background', type: 'background' as const, paint: { 'background-color': '#e8e4df' } }],
-};
-
-// ── Layer IDs for our overlays ──────────────
-const WP_SOURCE = 'waypoints';
-const WP_CIRCLE = 'waypoint-circle';
-const WP_LABEL = 'waypoint-label';
-const ROUTE_SOURCE = 'route-line';
-const ROUTE_LAYER = 'route-line-layer';
-const ROUTE_HIT = 'route-hit-area';
+// Fix Leaflet default icon paths
+delete (L.Icon.Default.prototype as Record<string, unknown>)._getIconUrl;
+L.Icon.Default.mergeOptions({
+  iconRetinaUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png',
+  iconUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png',
+  shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
+});
 
 interface MapProps {
-  activeLayers: Set<string>;
   route?: RouteResponse | null;
+  routeB?: RouteResponse | null;
   isFetching: boolean;
+  highlightDistance?: number | null;
+  onMapFlyTo?: (fn: (lng: number, lat: number) => void) => void;
+  onBboxChange?: (bbox: string) => void;
+  pois?: Array<{ lat: number; lng: number; name: string; category: string; id: string }> | null;
 }
 
-export default function MapCanvas({ activeLayers, route, isFetching }: MapProps) {
+// POI category colors
+const POI_COLORS: Record<string, string> = {
+  water: '#3b82f6', toilets: '#6366f1', restaurant: '#f97316', cafe: '#a855f7',
+  bakery: '#d97706', supermarket: '#22c55e', bikeShop: '#06b6d4', bikeRepair: '#0891b2',
+  shelter: '#78716c', campsite: '#84cc16', hotel: '#e11d48', trainStation: '#ef4444',
+  viewpoint: '#14b8a6', picnic: '#65a30d',
+};
+
+export default function MapView(props: MapProps) {
+  const { route, routeB, isFetching, highlightDistance, onMapFlyTo, onBboxChange, pois } = props;
   const containerRef = useRef<HTMLDivElement>(null);
-  const mapRef = useRef<Map | null>(null);
-  const prevLayersRef = useRef<Set<string>>(new Set());
-  const dragRef = useRef<{ wpId: string; startLng: number; startLat: number } | null>(null);
-  const routeDragRef = useRef<{ active: boolean }>({ active: false });
+  const mapRef = useRef<L.Map | null>(null);
+  const routeLineRef = useRef<L.Polyline | null>(null);
+  const routeBLineRef = useRef<L.Polyline | null>(null);
+  const wpMarkersRef = useRef<L.Marker[]>([]);
+  const poiLayerRef = useRef<L.GeoJSON | null>(null);
+  const blockedLineRef = useRef<L.Polyline | null>(null);
+  const highlightMarkerRef = useRef<L.CircleMarker | null>(null);
   const routeCoordsRef = useRef<Array<[number, number]>>([]);
 
-  const { waypoints, addWaypoint, moveWaypoint, insertWaypointAt } = useWaypointStore();
+  const { waypoints, addWaypoint, moveWaypoint, blockedSegment, setBlockedSegment } = useWaypointStore();
 
-  // ── Initialize map ──────────────────────────
+  // ── Init map ──────────────────────────────
   useEffect(() => {
     if (!containerRef.current || mapRef.current) return;
 
-    const initialStyle = activeLayers.has('basemap') ? desaturatedStyle : BLANK_STYLE;
-    const map = new MapLibreMap({
-      container: containerRef.current,
-      style: initialStyle,
-      center: [12.3731, 51.0397],
-      zoom: 9,
+    const map = L.map(containerRef.current, {
+      center: [51.3397, 12.3731],   // Leipzig (Sachsen)
+      zoom: 12,
       attributionControl: false,
+      zoomControl: true,
+    });
+
+    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 19,
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+    }).addTo(map);
+
+    // Click to add waypoint
+    map.on('click', (e: L.LeafletMouseEvent) => {
+      addWaypoint(e.latlng.lat, e.latlng.lng);
+    });
+
+    // Bbox change reporting
+    const reportBbox = () => {
+      const b = map.getBounds();
+      onBboxChange?.([b.getSouth().toFixed(4), b.getWest().toFixed(4), b.getNorth().toFixed(4), b.getEast().toFixed(4)].join(','));
+    };
+    map.on('moveend', reportBbox);
+    reportBbox();
+
+    // Register fly-to callback
+    onMapFlyTo?.((lng: number, lat: number) => {
+      map.flyTo([lat, lng], Math.max(map.getZoom(), 14), { duration: 0.8 });
     });
 
     mapRef.current = map;
-
-    // Click on map → add waypoint (unless clicking on an existing waypoint)
-    map.on('click', (e: MapMouseEvent) => {
-      // Don't add if we clicked on an existing waypoint or the route hit area
-      const features = map.queryRenderedFeatures(e.point, {
-        layers: [WP_CIRCLE, ROUTE_HIT],
-      });
-      if (features.length > 0) return;
-
-      addWaypoint(e.lngLat.lat, e.lngLat.lng);
-    });
-
-    // Waypoint drag handling
-    map.on('mousedown', WP_CIRCLE, (e: MapLayerMouseEvent) => {
-      if (!e.features || e.features.length === 0) return;
-      const wpId = e.features[0].properties?.id as string;
-      if (!wpId) return;
-
-      dragRef.current = { wpId, startLng: e.lngLat.lng, startLat: e.lngLat.lat };
-
-      const onMove = (ev: MapMouseEvent) => {
-        if (!dragRef.current) return;
-        moveWaypoint(dragRef.current.wpId, ev.lngLat.lat, ev.lngLat.lng);
-      };
-
-      const onUp = () => {
-        dragRef.current = null;
-        map.off('mousemove', onMove);
-        map.off('mouseup', onUp);
-      };
-
-      map.on('mousemove', onMove);
-      map.once('mouseup', onUp);
-    });
-
-    // Route line drag → insert via point
-    map.on('mousedown', ROUTE_HIT, (e: MapLayerMouseEvent) => {
-      if (isFetching) return;
-      routeDragRef.current = { active: false };
-      const startLng = e.lngLat.lng;
-      const startLat = e.lngLat.lat;
-
-      const onMove = (ev: MapMouseEvent) => {
-        if (Math.abs(ev.lngLat.lng - startLng) > 0.001 || Math.abs(ev.lngLat.lat - startLat) > 0.001) {
-          routeDragRef.current.active = true;
-        }
-      };
-
-      const onUp = (ev: MapMouseEvent) => {
-        map.off('mousemove', onMove);
-        map.off('mouseup', onUp);
-
-        if (!routeDragRef.current.active) return;
-
-        // Find nearest point on the route (stored in ref during route update)
-        const line = routeCoordsRef.current;
-        if (line.length < 2) return;
-        const nearest = nearestPointOnLine([ev.lngLat.lng, ev.lngLat.lat], line);
-
-        // Insert waypoint at the segment index
-        insertWaypointAt(nearest.index + 1, nearest.coord[1], nearest.coord[0]);
-      };
-
-      map.on('mousemove', onMove);
-      map.once('mouseup', onUp);
-    });
-
-    // Cursor styles
-    map.on('mouseenter', WP_CIRCLE, () => { map.getCanvas().style.cursor = 'grab'; });
-    map.on('mouseleave', WP_CIRCLE, () => { map.getCanvas().style.cursor = ''; });
-    map.on('mousedown', WP_CIRCLE, () => { map.getCanvas().style.cursor = 'grabbing'; });
-    map.on('mouseup', () => { map.getCanvas().style.cursor = ''; });
-    map.on('mouseenter', ROUTE_HIT, () => { map.getCanvas().style.cursor = 'pointer'; });
-    map.on('mouseleave', ROUTE_HIT, () => { map.getCanvas().style.cursor = ''; });
 
     return () => {
       map.remove();
       mapRef.current = null;
     };
-    // Only run on mount — empty deps intentional
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // ── Sync layers on activeLayers change ──────
+  // ── Waypoint markers ──────────────────────
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
 
-    const prev = prevLayersRef.current;
-    const current = activeLayers;
+    wpMarkersRef.current.forEach((m) => m.remove());
+    wpMarkersRef.current = [];
 
-    const basemapWasActive = prev.has('basemap');
-    const basemapIsActive = current.has('basemap');
-    if (basemapWasActive !== basemapIsActive) {
-      const style = basemapIsActive ? desaturatedStyle : BLANK_STYLE;
-      map.setStyle(style);
-      map.once('style.load', () => {
-        for (const layer of LAYERS) {
-          if (layer.id !== 'basemap' && current.has(layer.id)) layer.setup(map);
-        }
-        // Re-add our waypoints and route after style change
-        updateWaypointSource(map);
-        updateRouteSource(map, undefined, routeCoordsRef);
+    waypoints.forEach((wp, i) => {
+      const marker = L.marker([wp.lat, wp.lng], {
+        draggable: true,
+        icon: L.divIcon({
+          className: 'wp-div-icon',
+          html: '<div style="background:#2563eb;color:white;border:2px solid white;border-radius:50%;width:22px;height:22px;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:bold;box-shadow:0 1px 3px rgba(0,0,0,0.3)">' + (i + 1) + '</div>',
+          iconSize: [22, 22],
+          iconAnchor: [11, 11],
+        }),
       });
-      prevLayersRef.current = new Set(current);
-      return;
-    }
 
-    for (const layer of LAYERS) {
-      if (layer.id === 'basemap') continue;
-      if (!prev.has(layer.id) && current.has(layer.id)) {
-        if (map.isStyleLoaded()) layer.setup(map);
-        else map.once('style.load', () => layer.setup(map));
-      } else if (prev.has(layer.id) && !current.has(layer.id)) {
-        layer.teardown(map);
+      marker.on('dragend', () => {
+        const pos = marker.getLatLng();
+        moveWaypoint(wp.id, pos.lat, pos.lng);
+      });
+
+      marker.addTo(map);
+      wpMarkersRef.current.push(marker);
+    });
+  }, [waypoints, moveWaypoint]);
+
+  // ── Route line ────────────────────────────
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+
+    if (routeLineRef.current) { routeLineRef.current.remove(); routeLineRef.current = null; }
+
+    if (route?.geometry) {
+      const coords = decodePolyline(route.geometry);
+      routeCoordsRef.current = coords;
+      const latlngs = coords.map(([lng, lat]) => [lat, lng] as [number, number]);
+      const line = L.polyline(latlngs, {
+        color: '#dc2626', weight: 4, opacity: 0.85,
+      }).addTo(map);
+
+      // Shift+click → block segment
+      line.on('click', (e: L.LeafletMouseEvent) => {
+        if (!(e.originalEvent as MouseEvent).shiftKey) return;
+        if (routeCoordsRef.current.length < 2) return;
+        const nearest = nearestPointOnLine([e.latlng.lng, e.latlng.lat], routeCoordsRef.current);
+        const start = Math.max(0, nearest.index - 5);
+        const end = Math.min(routeCoordsRef.current.length - 1, nearest.index + 5);
+        setBlockedSegment(routeCoordsRef.current.slice(start, end + 1));
+      });
+
+      routeLineRef.current = line;
+      map.fitBounds(line.getBounds().pad(0.1));
+    }
+  }, [route, setBlockedSegment]);
+
+  // ── Comparison route B ────────────────────
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+
+    if (routeBLineRef.current) { routeBLineRef.current.remove(); routeBLineRef.current = null; }
+
+    if (routeB?.geometry) {
+      const coords = decodePolyline(routeB.geometry);
+      const latlngs = coords.map(([lng, lat]) => [lat, lng] as [number, number]);
+      routeBLineRef.current = L.polyline(latlngs, {
+        color: '#7c3aed', weight: 3, opacity: 0.6, dashArray: '8,4',
+      }).addTo(map);
+    }
+  }, [routeB]);
+
+  // ── POI markers ───────────────────────────
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+
+    if (poiLayerRef.current) { poiLayerRef.current.remove(); poiLayerRef.current = null; }
+
+    if (pois && pois.length > 0) {
+      poiLayerRef.current = L.geoJSON(
+        {
+          type: 'FeatureCollection',
+          features: pois.map((p) => ({
+            type: 'Feature' as const,
+            properties: { name: p.name, category: p.category },
+            geometry: { type: 'Point' as const, coordinates: [p.lng, p.lat] },
+          })),
+        },
+        {
+          pointToLayer: (_feature, latlng) => {
+            const cat = (_feature.properties?.category as string) || '';
+            return L.circleMarker(latlng, {
+              radius: 6, fillColor: POI_COLORS[cat] || '#9ca3af',
+              color: '#fff', weight: 1.5, fillOpacity: 0.85,
+            });
+          },
+        },
+      ).addTo(map);
+    }
+  }, [pois]);
+
+  // ── Blocked segment ───────────────────────
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+
+    if (blockedLineRef.current) { blockedLineRef.current.remove(); blockedLineRef.current = null; }
+
+    if (blockedSegment && blockedSegment.length >= 2) {
+      const latlngs = blockedSegment.map(([lng, lat]) => [lat, lng] as [number, number]);
+      blockedLineRef.current = L.polyline(latlngs, {
+        color: '#f59e0b', weight: 6, opacity: 0.7, dashArray: '6,3',
+      }).addTo(map);
+    }
+  }, [blockedSegment]);
+
+  // ── Elevation highlight ───────────────────
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+
+    if (highlightMarkerRef.current) { highlightMarkerRef.current.remove(); highlightMarkerRef.current = null; }
+
+    if (highlightDistance != null && route?.geometry && route.summary.distanceKm > 0) {
+      const fraction = Math.max(0, Math.min(1, highlightDistance / route.summary.distanceKm));
+      const coords = routeCoordsRef.current;
+      if (coords.length > 0) {
+        const idx = Math.round(fraction * (coords.length - 1));
+        const [lng, lat] = coords[Math.min(idx, coords.length - 1)];
+        highlightMarkerRef.current = L.circleMarker([lat, lng], {
+          radius: 9, fillColor: '#ef4444', color: '#fff', weight: 2, fillOpacity: 0.9,
+        }).addTo(map);
       }
     }
-
-    prevLayersRef.current = new Set(current);
-  }, [activeLayers]);
-
-  // ── Update waypoint markers ────────────────
-  useEffect(() => {
-    const map = mapRef.current;
-    if (!map || !map.isStyleLoaded()) return;
-    updateWaypointSource(map);
-  }, [waypoints]);
-
-  // ── Update route line ──────────────────────
-  useEffect(() => {
-    const map = mapRef.current;
-    if (!map || !map.isStyleLoaded()) return;
-    updateRouteSource(map, route, routeCoordsRef);
-  }, [route]);
+  }, [highlightDistance, route]);
 
   return <div ref={containerRef} className="absolute inset-0" />;
-}
-
-// ── Helper functions for source/layer management ──
-
-function ensureWaypointLayers(map: Map) {
-  if (!map.getSource(WP_SOURCE)) {
-    map.addSource(WP_SOURCE, { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
-  }
-  if (!map.getLayer(WP_CIRCLE)) {
-    map.addLayer({
-      id: WP_CIRCLE,
-      type: 'circle',
-      source: WP_SOURCE,
-      paint: {
-        'circle-radius': 8,
-        'circle-color': '#2563eb',
-        'circle-stroke-color': '#ffffff',
-        'circle-stroke-width': 2.5,
-        'circle-opacity': 0.9,
-      },
-    });
-  }
-  if (!map.getLayer(WP_LABEL)) {
-    map.addLayer({
-      id: WP_LABEL,
-      type: 'symbol',
-      source: WP_SOURCE,
-      layout: {
-        'text-field': ['get', 'label'],
-        'text-font': ['Open Sans Bold'],
-        'text-size': 10,
-        'text-offset': [0, 0.15],
-      },
-      paint: {
-        'text-color': '#ffffff',
-        'text-halo-color': '#2563eb',
-        'text-halo-width': 0.5,
-      },
-    });
-  }
-}
-
-function ensureRouteLayers(map: Map) {
-  if (!map.getSource(ROUTE_SOURCE)) {
-    map.addSource(ROUTE_SOURCE, {
-      type: 'geojson',
-      data: { type: 'FeatureCollection', features: [] },
-    });
-  }
-  if (!map.getLayer(ROUTE_LAYER)) {
-    map.addLayer({
-      id: ROUTE_LAYER,
-      type: 'line',
-      source: ROUTE_SOURCE,
-      layout: { 'line-join': 'round', 'line-cap': 'round' },
-      paint: {
-        'line-color': '#dc2626',
-        'line-width': 3,
-        'line-opacity': 0.85,
-      },
-    });
-  }
-  // Invisible wide hit area for dragging the route
-  if (!map.getLayer(ROUTE_HIT)) {
-    map.addLayer({
-      id: ROUTE_HIT,
-      type: 'line',
-      source: ROUTE_SOURCE,
-      layout: { 'line-join': 'round', 'line-cap': 'round' },
-      paint: {
-        'line-color': 'rgba(0,0,0,0)',
-        'line-width': 14,
-        'line-opacity': 0,
-      },
-    });
-  }
-}
-
-function updateWaypointSource(map: Map) {
-  const { waypoints } = useWaypointStore.getState();
-  const source = map.getSource(WP_SOURCE) as GeoJSONSource | undefined;
-  if (!source) {
-    ensureWaypointLayers(map);
-    // Retry after ensuring layers exist
-    const s = map.getSource(WP_SOURCE) as GeoJSONSource | undefined;
-    if (!s) return;
-    setWaypointData(s, waypoints);
-    return;
-  }
-  setWaypointData(source, waypoints);
-}
-
-function setWaypointData(source: GeoJSONSource, waypoints: import('../store/useWaypointStore').Waypoint[]) {
-  source.setData({
-    type: 'FeatureCollection',
-    features: waypoints.map((wp, i) => ({
-      type: 'Feature' as const,
-      geometry: { type: 'Point' as const, coordinates: [wp.lng, wp.lat] },
-      properties: { id: wp.id, label: String(i + 1), type: wp.type },
-    })),
-  });
-}
-
-function updateRouteSource(
-  map: Map,
-  route?: RouteResponse | null,
-  routeCoordsRef?: MutableRefObject<Array<[number, number]>>,
-) {
-  if (!route?.geometry) {
-    if (routeCoordsRef) routeCoordsRef.current = [];
-    const source = map.getSource(ROUTE_SOURCE) as GeoJSONSource | undefined;
-    if (source) source.setData({ type: 'FeatureCollection', features: [] });
-    return;
-  }
-  ensureRouteLayers(map);
-
-  const coords = decodePolyline(route.geometry);
-  if (routeCoordsRef) routeCoordsRef.current = coords;
-
-  const source = map.getSource(ROUTE_SOURCE) as GeoJSONSource | undefined;
-  if (!source) return;
-
-  source.setData({
-    type: 'FeatureCollection',
-    features: [
-      {
-        type: 'Feature',
-        geometry: { type: 'LineString', coordinates: coords },
-        properties: {},
-      },
-    ],
-  });
 }

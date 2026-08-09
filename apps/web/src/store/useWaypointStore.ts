@@ -10,12 +10,16 @@ export interface Waypoint {
 
 interface WaypointState {
   waypoints: Waypoint[];
+  /** Segment to block, as [lng, lat][] polyline */
+  blockedSegment: Array<[number, number]> | null;
   addWaypoint: (lat: number, lng: number, type?: 'break' | 'through') => void;
   insertWaypointAt: (index: number, lat: number, lng: number) => void;
   moveWaypoint: (id: string, lat: number, lng: number) => void;
   removeWaypoint: (id: string) => void;
   reorderWaypoints: (fromIndex: number, toIndex: number) => void;
+  reverseWaypoints: () => void;
   clearWaypoints: () => void;
+  setBlockedSegment: (segment: Array<[number, number]> | null) => void;
 }
 
 let nextId = 1;
@@ -25,6 +29,7 @@ function uid(): string {
 
 export const useWaypointStore = create<WaypointState>((set) => ({
   waypoints: [],
+  blockedSegment: null,
 
   addWaypoint: (lat, lng, type = 'break') =>
     set((state) => ({
@@ -57,5 +62,12 @@ export const useWaypointStore = create<WaypointState>((set) => ({
       return { waypoints: next };
     }),
 
-  clearWaypoints: () => set({ waypoints: [] }),
+  reverseWaypoints: () =>
+    set((state) => ({
+      waypoints: [...state.waypoints].reverse(),
+    })),
+
+  clearWaypoints: () => set({ waypoints: [], blockedSegment: null }),
+
+  setBlockedSegment: (segment) => set({ blockedSegment: segment }),
 }));

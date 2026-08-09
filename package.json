@@ -6,7 +6,8 @@
     "dev": "concurrently -n web,api -c cyan,green \"pnpm --filter @cycleplanner/web dev\" \"pnpm --filter @cycleplanner/api dev\"",
     "build": "pnpm -r build",
     "test": "pnpm -r test",
-    "lint": "eslint . --ext .ts,.tsx --ignore-pattern dist --ignore-pattern node_modules"
+    "lint": "eslint . --ext .ts,.tsx --ignore-pattern dist --ignore-pattern node_modules",
+    "calibrate": "tsx scripts/calibrate.ts"
   },
   "devDependencies": {
     "@eslint/js": "^9.22.0",

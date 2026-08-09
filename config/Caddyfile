@@ -2,25 +2,51 @@
 # Caddy-Konfiguration – CyclePlanner
 # ──────────────────────────────────────────────
 
-# ┌──────────────────────────────────────────────────┐
-# │ TLS & Zugangsschutz (deaktiviert für local mode) │
-# │ Für Server-Betrieb in P6 aktivieren:             │
-# │                                                   │
-# │ tls internal                                      │
-# │ basicauth {                                       │
-# │   import CYCLEPLANNER_CREDENTIALS                 │
-# │ }                                                 │
-# └──────────────────────────────────────────────────┘
+# ──────────────────────────────────────────────
+# Caddy-Konfiguration – CyclePlanner
+# ──────────────────────────────────────────────
+#
+# LOCAL MODE (DEPLOY_MODE=local):
+#   HTTP only, no TLS, no auth. For development.
+#
+# SERVER MODE (DEPLOY_MODE=server):
+#   TLS via Let's Encrypt, HTTP→HTTPS redirect,
+#   Basic Auth on /api/* and admin routes.
+# ──────────────────────────────────────────────
 
-:{$CADDY_PORT} {
-  # API-Proxy zum Backend (handle = Pfad bleibt erhalten)
+# ── Site block ────────────────────────────────
+{$CADDY_HOSTNAME:localhost}:{$CADDY_PORT} {
+
+  # ── TLS (only active in server mode) ────────
+  # When CADDY_TLS=internal → self-signed for testing
+  # When CADDY_TLS=letsencrypt → production via Let's Encrypt
+  # When CADDY_TLS=off → no TLS (local mode)
+  {$CADDY_TLS}
+
+  # ── Access protection (server mode) ─────────
+  @protected {
+    path /api/*
+  }
+  handle @protected {
+    basicauth {
+      {$CYCLEPLANNER_CREDENTIALS}
+    }
+    reverse_proxy api:{$API_PORT}
+  }
+
+  # ── API proxy (local mode, no auth) ─────────
   handle /api/* {
     reverse_proxy api:{$API_PORT}
   }
 
-  # Statisches Frontend ausliefern
+  # ── Static frontend ─────────────────────────
   handle {
     root * /srv
     file_server
+  }
+
+  # ── Logging ─────────────────────────────────
+  log {
+    output file /var/log/caddy/access.log
   }
 }
