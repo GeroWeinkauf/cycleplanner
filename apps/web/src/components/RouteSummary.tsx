@@ -58,35 +58,37 @@ export default function RouteSummary({ route, elevation, analysis }: Props) {
       {/* Surface */}
       {analysis && (
         <>
-          <div className="text-[10px] font-medium text-gray-600 mb-1">Oberfläche</div>
+          <div className="text-[10px] font-medium text-gray-600 mb-1">Oberflaeche</div>
           <div className="flex h-3 w-full overflow-hidden rounded-full bg-gray-200 mb-1">
             {[
               { k: 'asphalt', c: '#4ade80', l: 'Asphalt', v: analysis.surfaceDistribution.asphalt },
               { k: 'gravel', c: '#f59e0b', l: 'Schotter', v: analysis.surfaceDistribution.gravel },
-              { k: 'dirt', c: '#d97706', l: 'Natur', v: analysis.surfaceDistribution.dirt },
+              { k: 'dirt', c: '#d97706', l: 'Naturweg', v: analysis.surfaceDistribution.dirt },
               { k: 'paved', c: '#22c55e', l: 'Pflaster', v: analysis.surfaceDistribution.paved },
             ].map(s => s.v > 0 && (
               <div key={s.k} style={{ width: s.v + '%', backgroundColor: s.c }}
-                className="h-full first:rounded-l-full last:rounded-r-full" title={s.l + ': ' + s.v + '%'} />
+                className="h-full first:rounded-l-full last:rounded-r-full" title={s.l + ': ' + s.v.toFixed(1) + '%'} />
             ))}
           </div>
           <div className="flex flex-wrap gap-x-2 text-[10px] text-gray-500 mb-2">
-            <span><span className="inline-block h-1.5 w-1.5 rounded-full bg-green-400 mr-0.5" />A {analysis.surfaceDistribution.asphalt}%</span>
-            <span><span className="inline-block h-1.5 w-1.5 rounded-full bg-amber-500 mr-0.5" />S {analysis.surfaceDistribution.gravel}%</span>
-            <span><span className="inline-block h-1.5 w-1.5 rounded-full bg-orange-600 mr-0.5" />N {analysis.surfaceDistribution.dirt}%</span>
+            <span><span className="inline-block h-1.5 w-1.5 rounded-full bg-green-400 mr-0.5" />Asphalt {analysis.surfaceDistribution.asphalt}%</span>
+            <span><span className="inline-block h-1.5 w-1.5 rounded-full bg-amber-500 mr-0.5" />Schotter {analysis.surfaceDistribution.gravel}%</span>
+            <span><span className="inline-block h-1.5 w-1.5 rounded-full bg-orange-600 mr-0.5" />Naturweg {analysis.surfaceDistribution.dirt}%</span>
           </div>
 
           <div className="text-[10px] font-medium text-gray-600 mb-1">Wegtypen</div>
           <div className="flex flex-wrap gap-x-2 text-[10px] text-gray-500">
             {[
-              { k: 'cycleway', v: analysis.roadClassDistribution.cycleway },
-              { k: 'path', v: analysis.roadClassDistribution.path },
-              { k: 'residential', v: analysis.roadClassDistribution.residential },
-              { k: 'secondary', v: analysis.roadClassDistribution.secondary },
-              { k: 'primary', v: analysis.roadClassDistribution.primary },
-              { k: 'track', v: analysis.roadClassDistribution.track },
-            ].map(r => r.v > 0 && (
-              <span key={r.k}>{r.k} {r.v}%</span>
+              { k: 'cycleway', l: 'Radweg', v: analysis.roadClassDistribution.cycleway },
+              { k: 'path', l: 'Pfad', v: analysis.roadClassDistribution.path },
+              { k: 'residential', l: 'Wohnstr.', v: analysis.roadClassDistribution.residential },
+              { k: 'secondary', l: 'Landstr.', v: analysis.roadClassDistribution.secondary },
+              { k: 'primary', l: 'Bundesstr.', v: analysis.roadClassDistribution.primary },
+              { k: 'track', l: 'Feldweg', v: analysis.roadClassDistribution.track },
+              { k: 'tertiary', l: 'Kreisstr.', v: analysis.roadClassDistribution.tertiary },
+              { k: 'service', l: 'Service', v: analysis.roadClassDistribution.service },
+            ].filter(r => r.v > 0).map(r => (
+              <span key={r.k} className="whitespace-nowrap">{r.l} {r.v}%</span>
             ))}
           </div>
         </>

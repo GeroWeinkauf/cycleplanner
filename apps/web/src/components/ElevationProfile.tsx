@@ -7,6 +7,7 @@ interface Props {
   isLoading: boolean;
   onHover?: (point: ElevationPoint | null) => void;
   onClick?: (point: ElevationPoint) => void;
+  onReset?: () => void;
   highlightDistance?: number | null;
 }
 
@@ -22,7 +23,7 @@ function clamp(v: number, min: number, max: number): number {
 }
 
 export default function ElevationProfile({
-  data, surfaceData, isLoading, onHover, onClick, highlightDistance,
+  data, surfaceData, isLoading, onHover, onClick, onReset, highlightDistance,
 }: Props) {
   const svgRef = useRef<SVGSVGElement>(null);
   const [hoverX, setHoverX] = useState<number | null>(null);
@@ -165,6 +166,9 @@ export default function ElevationProfile({
         </span>
         <span>
           <span className="font-semibold text-gray-800">{metrics.maxSlope}%</span> max. Steigung
+          {highlightDistance != null && onReset && (
+            <button onClick={onReset} className="ml-1 text-[10px] text-gray-400 hover:text-gray-600" title="Markierung aufheben">✕</button>
+          )}
         </span>
       </div>
 
@@ -208,7 +212,6 @@ export default function ElevationProfile({
       )}
 
       {/* SVG diagram (only in elevation mode) */}
-      {viewMode === 'elevation' && (
       <svg
         ref={svgRef}
         viewBox={'0 0 ' + (PADDING.left + innerW + PADDING.right) + ' ' + (PADDING.top + innerH + PADDING.bottom)}
@@ -221,10 +224,10 @@ export default function ElevationProfile({
         aria-label="Hoehenprofil"
       >
         {/* Area fill */}
-        <path d={areaD} fill="rgba(37, 99, 235, 0.12)" stroke="none" />
+        <path d={areaD} fill={viewMode === "elevation" ? "rgba(37, 99, 235, 0.12)" : "rgba(22, 163, 74, 0.08)"} stroke="none" />
 
         {/* Elevation line */}
-        <path d={pathD} fill="none" stroke="#2563eb" strokeWidth="1.5" strokeLinejoin="round" />
+        <path d={pathD} fill="none" stroke={viewMode === "elevation" ? "#2563eb" : "#16a34a"} strokeWidth="1.5" strokeLinejoin="round" />
 
         {/* Grid lines */}
         {yLabels.map((tick, i) => (
@@ -295,7 +298,7 @@ export default function ElevationProfile({
           />
         )}
       </svg>
-      )}
+      
     </div>
   );
 }

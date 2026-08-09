@@ -103,6 +103,7 @@ function AppInner() {
         isLoading={elevationLoading}
         onHover={handleElevationHover}
         onClick={handleElevationClick}
+        onReset={() => setHighlightDistance(null)}
         highlightDistance={highlightDistance}
       />
 
