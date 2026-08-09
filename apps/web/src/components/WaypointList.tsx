@@ -110,6 +110,7 @@ export default function WaypointList() {
             key={wp.id}
             wp={wp}
             index={i}
+            total={waypoints.length}
             onRemove={removeWaypoint}
             onDragStart={() => handleDragStart(i)}
             onDragOver={(e) => handleDragOver(e, i)}
@@ -125,6 +126,7 @@ export default function WaypointList() {
 function WaypointRow({
   wp,
   index,
+  total,
   onRemove,
   onDragStart,
   onDragOver,
@@ -133,13 +135,16 @@ function WaypointRow({
 }: {
   wp: Waypoint;
   index: number;
+  total: number;
   onRemove: (id: string) => void;
   onDragStart: () => void;
   onDragOver: (e: React.DragEvent) => void;
   onDrop: () => void;
   onDragEnd: () => void;
 }) {
-  const typeLabel = wp.type === 'break' ? 'Halt' : 'Durchfahrt';
+  const isFirst = index === 0;
+  const isLast = total > 1 && index === total - 1;
+  const typeLabel = isFirst ? 'Start' : isLast ? 'Ende' : wp.type === 'break' ? 'Halt' : 'Durchfahrt';
 
   return (
     <li

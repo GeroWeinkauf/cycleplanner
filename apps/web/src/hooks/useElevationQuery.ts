@@ -24,7 +24,7 @@ export function useElevationQuery(polyline: string | undefined) {
       return res.json() as Promise<ElevationProfile>;
     },
     enabled: !!polyline && polyline.length > 0,
-    staleTime: 5 * 60 * 1000, // 5 min cache
+    staleTime: 0, // 5 min cache
     retry: 2,
   });
 }

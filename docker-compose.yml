@@ -57,6 +57,11 @@ services:
       - VALHALLA_URL=http://valhalla:8002
       - API_PORT=${API_PORT:-3000}
       - API_HOST=0.0.0.0
+      - COMPOSE_DIR=/app
+    volumes:
+      - ./config:/config:ro
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./docker-compose.yml:/app/docker-compose.yml:ro
     ports:
       - "${HOST_BIND:-127.0.0.1}:${API_PORT:-3000}:3000"
     depends_on:

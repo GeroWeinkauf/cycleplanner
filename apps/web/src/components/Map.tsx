@@ -31,6 +31,28 @@ const POI_COLORS: Record<string, string> = {
   viewpoint: '#14b8a6', picnic: '#65a30d',
 };
 
+// Simplified Sachsen boundary (approximate Valhalla coverage area)
+const SACHSEN_BOUNDARY = {
+  type: 'Feature',
+  properties: { name: 'Sachsen' },
+  geometry: {
+    type: 'Polygon',
+    coordinates: [[
+      [12.06, 51.62], [12.22, 51.67], [12.38, 51.61], [12.60, 51.55],
+      [12.81, 51.42], [13.05, 51.35], [13.20, 51.18], [13.39, 51.02],
+      [13.62, 50.93], [13.95, 50.79], [14.30, 50.57], [14.60, 50.44],
+      [14.86, 50.45], [15.02, 50.32], [14.90, 50.22], [14.70, 50.20],
+      [14.55, 50.25], [14.42, 50.35], [14.20, 50.32], [13.98, 50.38],
+      [13.80, 50.48], [13.62, 50.55], [13.40, 50.59], [13.18, 50.55],
+      [12.92, 50.52], [12.70, 50.60], [12.52, 50.68], [12.35, 50.72],
+      [12.22, 50.65], [12.10, 50.52], [12.08, 50.42], [12.14, 50.35],
+      [12.00, 50.28], [11.88, 50.28], [11.78, 50.35], [11.72, 50.45],
+      [11.78, 50.60], [11.92, 50.72], [12.00, 50.88], [12.02, 51.05],
+      [12.00, 51.22], [11.98, 51.38], [12.02, 51.52], [12.06, 51.62],
+    ]],
+  },
+};
+
 export default function MapView(props: MapProps) {
   const { route, routeB, isFetching, highlightDistance, onMapFlyTo, onBboxChange, pois } = props;
   const containerRef = useRef<HTMLDivElement>(null);
@@ -81,6 +103,19 @@ export default function MapView(props: MapProps) {
 
     mapRef.current = map;
 
+    // Add Sachsen boundary overlay
+    const sachsenStyle = {
+      color: '#f97316',
+      weight: 2,
+      opacity: 0.6,
+      fillColor: '#f97316',
+      fillOpacity: 0.05,
+      dashArray: '8,4',
+    };
+    L.geoJSON(SACHSEN_BOUNDARY as any, { style: sachsenStyle } as any)
+      .bindPopup('<b>Sachsen</b><br/>Valhalla Routing Bereich')
+      .addTo(map);
+
     return () => {
       map.remove();
       mapRef.current = null;
@@ -97,11 +132,18 @@ export default function MapView(props: MapProps) {
     wpMarkersRef.current = [];
 
     waypoints.forEach((wp, i) => {
+      const isFirst = i === 0;
+      const isLast = waypoints.length > 1 && i === waypoints.length - 1;
+      const iconHtml = isFirst
+        ? '<div style="background:#16a34a;color:white;border:2px solid white;border-radius:50%;width:22px;height:22px;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:bold;box-shadow:0 1px 3px rgba(0,0,0,0.3)">S</div>'
+        : isLast
+        ? '<div style="background:#dc2626;color:white;border:2px solid white;border-radius:50%;width:22px;height:22px;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:bold;box-shadow:0 1px 3px rgba(0,0,0,0.3)">E</div>'
+        : '<div style="background:#2563eb;color:white;border:2px solid white;border-radius:50%;width:22px;height:22px;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:bold;box-shadow:0 1px 3px rgba(0,0,0,0.3)">' + (i + 1) + '</div>';
       const marker = L.marker([wp.lat, wp.lng], {
         draggable: true,
         icon: L.divIcon({
           className: 'wp-div-icon',
-          html: '<div style="background:#2563eb;color:white;border:2px solid white;border-radius:50%;width:22px;height:22px;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:bold;box-shadow:0 1px 3px rgba(0,0,0,0.3)">' + (i + 1) + '</div>',
+          html: iconHtml,
           iconSize: [22, 22],
           iconAnchor: [11, 11],
         }),

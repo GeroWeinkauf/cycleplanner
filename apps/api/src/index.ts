@@ -187,6 +187,48 @@ export function buildApp() {
     return reply.send({ status: 'ok' });
   });
 
+  // ── Valhalla status ────────────────────────────
+  app.get<{ Reply: { running: boolean; message: string } }>(
+    '/api/valhalla/status',
+    async (_req, reply) => {
+      try {
+        const res = await fetch(`${VALHALLA_URL}/status`, {
+          signal: AbortSignal.timeout(3000),
+        });
+        if (res.ok) {
+          return reply.send({ running: true, message: 'Valhalla läuft' });
+        }
+        return reply.send({ running: false, message: 'Valhalla antwortet nicht (Status: ' + res.status + ')' });
+      } catch {
+        return reply.send({ running: false, message: 'Valhalla ist nicht erreichbar' });
+      }
+    },
+  );
+
+  // ── Valhalla start (Docker Compose) ─────────────
+  app.post<{ Reply: { ok: boolean; message: string } }>(
+    '/api/valhalla/start',
+    async (_req, reply) => {
+      try {
+        const { execSync } = await import('node:child_process');
+        // Try starting valhalla via docker compose
+        const cwd = process.cwd();
+        execSync('docker compose up -d valhalla', {
+          cwd: process.env.COMPOSE_DIR || cwd,
+          timeout: 30000,
+          stdio: 'pipe',
+        });
+        return reply.send({ ok: true, message: 'Valhalla wird gestartet...' });
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        return reply.status(500).send({
+          ok: false,
+          message: 'Konnte Valhalla nicht starten: ' + msg,
+        });
+      }
+    },
+  );
+
   // ── Elevation profile ─────────────────────────
   const elevationSchema = {
     body: {

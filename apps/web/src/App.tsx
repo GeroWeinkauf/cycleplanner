@@ -8,6 +8,7 @@ import Attribution from './components/Attribution';
 import RouteHeader from './components/RouteHeader';
 import ElevationProfile from './components/ElevationProfile';
 import TourToolbar from './components/TourToolbar';
+import ValhallaStatus from './components/ValhallaStatus';
 import PoiControls from './components/PoiControls';
 import PoiDetail from './components/PoiDetail';
 import { useRouteQuery } from './hooks/useRouteQuery';
@@ -60,6 +61,7 @@ function AppInner() {
           </div>
           <div className="flex-1 overflow-y-auto">
             <ProfilePanel />
+            <ValhallaStatus />
             <WaypointList />
             <TourToolbar route={route} />
             <PoiControls
@@ -90,6 +92,7 @@ function AppInner() {
       </div>
 
       <ElevationProfile
+        key={route?.geometry?.substring(0, 40) || 'no-route'}
         data={elevationData}
         surfaceData={analysis}
         isLoading={elevationLoading}

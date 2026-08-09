@@ -32,9 +32,17 @@ export const useWaypointStore = create<WaypointState>((set) => ({
   blockedSegment: null,
 
   addWaypoint: (lat, lng, type = 'break') =>
-    set((state) => ({
-      waypoints: [...state.waypoints, { id: uid(), lat, lng, type }],
-    })),
+    set((state) => {
+      const isFirst = state.waypoints.length === 0;
+      const wp: Waypoint = {
+        id: uid(),
+        lat,
+        lng,
+        type,
+        label: isFirst ? 'Start' : undefined,
+      };
+      return { waypoints: [...state.waypoints, wp] };
+    }),
 
   insertWaypointAt: (index, lat, lng) =>
     set((state) => {

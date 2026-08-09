@@ -212,7 +212,7 @@ export default function ElevationProfile({
       <svg
         ref={svgRef}
         viewBox={'0 0 ' + (PADDING.left + innerW + PADDING.right) + ' ' + (PADDING.top + innerH + PADDING.bottom)}
-        preserveAspectRatio="xMidYMid meet"
+        preserveAspectRatio="none"
         className="h-48 w-full cursor-crosshair"
         onMouseMove={handleMouseMove}
         onMouseLeave={handleMouseLeave}
