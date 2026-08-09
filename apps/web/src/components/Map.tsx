@@ -103,7 +103,7 @@ export default function MapView(props: MapProps) {
 
     mapRef.current = map;
 
-    // Add Sachsen boundary overlay
+    // Add Sachsen boundary overlay (non-interactive, clicks pass through)
     const sachsenStyle = {
       color: '#f97316',
       weight: 2,
@@ -112,9 +112,10 @@ export default function MapView(props: MapProps) {
       fillOpacity: 0.05,
       dashArray: '8,4',
     };
-    L.geoJSON(SACHSEN_BOUNDARY as any, { style: sachsenStyle } as any)
-      .bindPopup('<b>Sachsen</b><br/>Valhalla Routing Bereich')
-      .addTo(map);
+    L.geoJSON(SACHSEN_BOUNDARY as any, {
+      style: sachsenStyle,
+      interactive: false,
+    } as any).addTo(map);
 
     return () => {
       map.remove();
