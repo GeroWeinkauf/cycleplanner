@@ -8,9 +8,9 @@ import WaypointList from './components/WaypointList';
 import Attribution from './components/Attribution';
 import RouteHeader from './components/RouteHeader';
 import ElevationProfile from './components/ElevationProfile';
-import TourToolbar from './components/TourToolbar';
+import RouteSummary from './components/RouteSummary';
+import GpxImportButton from './components/GpxImportButton';
 import ValhallaStatus from './components/ValhallaStatus';
-import PoiControls from './components/PoiControls';
 import PoiDetail from './components/PoiDetail';
 import { useRouteQuery } from './hooks/useRouteQuery';
 import { useElevationQuery } from './hooks/useElevationQuery';
@@ -63,13 +63,7 @@ function AppInner() {
             <ProfilePanel />
             <ValhallaStatus />
             <WaypointList />
-            <TourToolbar route={route} />
-            <PoiControls
-              bbox={currentBbox}
-              corridorGeometry={route?.geometry}
-              onPoisLoaded={setPoiData}
-              onPoiClick={(poi) => setSelectedPoi(poi)}
-            />
+            <RouteSummary route={route} elevation={elevationData} analysis={analysis} />
           </div>
 
         </div>
@@ -84,8 +78,17 @@ function AppInner() {
             onBboxChange={setCurrentBbox}
             pois={poiData}
           />
+          <div className="absolute top-2 right-2 z-10 flex gap-2">
+            <GpxImportButton />
+          </div>
           <RouteHeader route={route} isFetching={isFetching} />
-          <MapLayerPanel activeLayers={activeLayers} onToggle={handleToggle} />
+          <MapLayerPanel
+            activeLayers={activeLayers}
+            onToggleLayer={handleToggle}
+            bbox={currentBbox}
+            corridorGeometry={route?.geometry}
+            onPoisLoaded={setPoiData}
+          />
           <Attribution activeLayers={activeLayers} />
         </div>
       </div>

@@ -117,6 +117,9 @@ export default function MapView(props: MapProps) {
       interactive: false,
     } as any).addTo(map);
 
+    // Scale bar (bottom-right)
+    L.control.scale({ position: 'bottomright', metric: true, imperial: false, maxWidth: 120 }).addTo(map);
+
     return () => {
       map.remove();
       mapRef.current = null;

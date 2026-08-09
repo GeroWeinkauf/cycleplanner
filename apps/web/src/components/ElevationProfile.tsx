@@ -243,11 +243,13 @@ export default function ElevationProfile({
         {yLabels.map((tick, i) => (
           <text
             key={'ylabel-' + i}
-            x={PADDING.left - 5}
+            x={PADDING.left - 4}
             y={tick.y + 3}
             textAnchor="end"
             className="fill-gray-400"
-            fontSize="9"
+            fontFamily="system-ui, sans-serif"
+            fontSize="8"
+            fontWeight="300"
           >
             {tick.label}
           </text>

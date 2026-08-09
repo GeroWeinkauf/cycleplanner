@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useRef, useState, useCallback } from 'react';
 import { useWaypointStore, type Waypoint } from '../store/useWaypointStore';
 
 export default function WaypointList() {
@@ -7,15 +7,27 @@ export default function WaypointList() {
   const dragItemRef = useRef<number | null>(null);
   const dragOverRef = useRef<number | null>(null);
 
-  const [roundTrip, setRoundTrip] = useState(false);
+  const [roundTrip, setRoundTripState] = useState(false);
+  const roundTripRef = useRef(false);
+  const lastAutoWpRef = useRef<string | null>(null);
 
-  // When round trip is enabled, ensure first and last waypoint match
-  const displayWaypoints = roundTrip && waypoints.length >= 2
-    ? waypoints
-    : waypoints;
   const isRoundTripPossible = waypoints.length >= 2;
 
-  // Show blocked segment indicator (even with no waypoints)
+  const setRoundTrip = useCallback((enabled: boolean) => {
+    const store = useWaypointStore.getState();
+    if (enabled && store.waypoints.length >= 1) {
+      const first = store.waypoints[0];
+      store.addWaypoint(first.lat, first.lng, 'break');
+      // Track the auto-added waypoint so we can remove it later
+      const added = store.waypoints[store.waypoints.length - 1];
+      lastAutoWpRef.current = added.id;
+    } else if (!enabled && lastAutoWpRef.current) {
+      store.removeWaypoint(lastAutoWpRef.current);
+      lastAutoWpRef.current = null;
+    }
+    setRoundTripState(enabled);
+    roundTripRef.current = enabled;
+  }, []);
   const blockedIndicator = blockedSegment ? (
     <div className="mx-3 mb-2 flex items-center justify-between rounded border border-amber-200 bg-amber-50 px-2 py-1 text-xs text-amber-800">
       <span>Segment gesperrt</span>
