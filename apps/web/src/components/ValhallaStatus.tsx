@@ -18,7 +18,9 @@ export default function ValhallaStatus() {
   const checkStatus = useCallback(async () => {
     try {
       const res = await fetch(API_BASE + '/valhalla/status');
-      const data = (await res.json()) as ValhallaState;
+      const text = await res.text();
+      if (!text) throw new Error('Leere Antwort vom Server');
+      const data = JSON.parse(text) as ValhallaState;
       setStatus(data);
       setError(null);
       return data;
@@ -33,7 +35,9 @@ export default function ValhallaStatus() {
     setError(null);
     try {
       const res = await fetch(API_BASE + '/valhalla/start', { method: 'POST' });
-      const data = (await res.json()) as { ok: boolean; message: string };
+      const text = await res.text();
+      if (!text) throw new Error('Leere Antwort vom Server');
+      const data = JSON.parse(text) as { ok: boolean; message: string };
       if (data.ok) {
         setTimeout(() => checkStatus(), 3000);
         setTimeout(() => checkStatus(), 8000);
