@@ -231,28 +231,36 @@ export function buildApp() {
           });
         }
 
-        const cmd = 'docker compose -f "' + composeFile + '" up -d valhalla';
-        execSync(cmd, {
-          timeout: 30000,
+        const composeDir = resolve(composeFile, '..');
+        // Use shell:true so docker is found via the user's PATH
+        execSync('docker compose -f "' + composeFile + '" up -d valhalla', {
+          cwd: composeDir,
+          timeout: 60000,
           stdio: 'pipe',
+          shell: true,
+          env: { ...process.env },
         });
         return reply.send({ ok: true, message: 'Valhalla wird gestartet...' });
       } catch (err: unknown) {
         let msg = 'Unbekannter Fehler';
         if (err instanceof Error) {
-          msg = err.message;
-          // If execSync threw, extract stderr for the real error
-          const execErr = err as { stderr?: Buffer | string; stdout?: Buffer | string };
-          if (execErr.stderr) {
-            const stderr = typeof execErr.stderr === 'string'
-              ? execErr.stderr
-              : execErr.stderr.toString('utf-8');
-            msg = stderr.trim() || msg;
+          const execErr = err as {
+            stderr?: Uint8Array | string;
+            stdout?: Uint8Array | string;
+            status?: number;
+          };
+          // Extract stderr and stdout for diagnostics
+          const parts: string[] = [];
+          for (const channel of ['stdout', 'stderr'] as const) {
+            const data = execErr[channel];
+            if (data) {
+              const text = typeof data === 'string' ? data : Buffer.from(data).toString('utf-8');
+              if (text.trim()) parts.push(text.trim());
+            }
           }
-          // If still generic, show status code
-          const execErr2 = err as { status?: number };
-          if (execErr2.status && msg === err.message) {
-            msg = 'Exit-Code ' + execErr2.status + ': ' + msg;
+          msg = parts.join(' | ') || err.message;
+          if (execErr.status) {
+            msg = '[Exit ' + execErr.status + '] ' + msg;
           }
         }
         return reply.status(500).send({
