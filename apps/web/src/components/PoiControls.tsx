@@ -147,9 +147,9 @@ export default function PoiControls({ bbox, corridorGeometry, onPoisLoaded, onPo
         </div>
 
         {/* POI list (clickable) */}
-        {pois.length > 0 && (
+        {(pois || []).length > 0 && (
           <div className="mt-2 max-h-40 overflow-y-auto border-t border-gray-100 pt-1">
-            {pois.slice(0, 30).map((poi) => (
+            {(pois || []).slice(0, 30).map((poi) => (
               <button
                 key={poi.id}
                 onClick={() => onPoiClick?.(poi)}
@@ -168,9 +168,9 @@ export default function PoiControls({ bbox, corridorGeometry, onPoisLoaded, onPo
                 )}
               </button>
             ))}
-            {pois.length > 30 && (
+            {(pois || []).length > 30 && (
               <div className="px-1 py-0.5 text-[10px] text-gray-400">
-                +{pois.length - 30} weitere
+                +{(pois || []).length - 30} weitere
               </div>
             )}
           </div>
