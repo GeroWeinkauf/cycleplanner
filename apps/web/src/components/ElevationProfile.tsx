@@ -237,7 +237,7 @@ export default function ElevationProfile({
               ['#f59e0b', surfaceData.surfaceDistribution.gravel],
               ['#d97706', surfaceData.surfaceDistribution.dirt],
               ['#22c55e', surfaceData.surfaceDistribution.paved],
-            ].map(([c, v]) => (v as number) > 0 && (
+            ].filter(([, v]) => (v as number) > 0).map(([c, v]) => (
               <div key={c} style={{ width: v + '%', backgroundColor: c }} className="h-full first:rounded-l-full last:rounded-r-full" />
             )))}
           </div>
