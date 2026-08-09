@@ -19,6 +19,7 @@ interface MapProps {
   isFetching: boolean;
   highlightDistance?: number | null;
   onMapFlyTo?: (fn: (lng: number, lat: number) => void) => void;
+  onMapFitBounds?: (fn: (points: Array<{ lat: number; lng: number }>) => void) => void;
   onBboxChange?: (bbox: string) => void;
   pois?: Array<{ lat: number; lng: number; name: string; category: string; id: string }> | null;
 }
@@ -66,6 +67,7 @@ export default function MapView(props: MapProps) {
   const routeCoordsRef = useRef<Array<[number, number]>>([]);
 
   const { waypoints, addWaypoint, moveWaypoint, blockedSegment, setBlockedSegment } = useWaypointStore();
+  const { onMapFitBounds } = props;
 
   // ── Init map ──────────────────────────────
   useEffect(() => {
@@ -99,6 +101,13 @@ export default function MapView(props: MapProps) {
     // Register fly-to callback
     onMapFlyTo?.((lng: number, lat: number) => {
       map.flyTo([lat, lng], Math.max(map.getZoom(), 14), { duration: 0.8 });
+    });
+
+    // Register fit-bounds callback
+    onMapFitBounds?.((pts: Array<{ lat: number; lng: number }>) => {
+      if (pts.length === 0) return;
+      const bounds = L.latLngBounds(pts.map(p => [p.lat, p.lng] as [number, number]));
+      map.fitBounds(bounds, { padding: [30, 30], maxZoom: 15 });
     });
 
     mapRef.current = map;

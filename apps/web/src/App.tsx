@@ -30,6 +30,7 @@ function AppInner() {
   const [poiData, setPoiData] = useState<Poi[] | null>(null);
   const [selectedPoi, setSelectedPoi] = useState<Poi | null>(null);
   const mapFlyToRef = useRef<((lng: number, lat: number) => void) | null>(null);
+  const mapFitBoundsRef = useRef<((points: Array<{ lat: number; lng: number }>) => void) | null>(null);
 
   const handleToggle = useCallback((layerId: string) => {
     setActiveLayers((prev) => {
@@ -78,6 +79,7 @@ function AppInner() {
             isFetching={isFetching}
             highlightDistance={highlightDistance}
             onMapFlyTo={(fn) => { mapFlyToRef.current = fn; }}
+            onMapFitBounds={(fn) => { mapFitBoundsRef.current = fn; }}
             onBboxChange={setCurrentBbox}
             pois={poiData}
           />
@@ -109,8 +111,7 @@ function AppInner() {
           if (elevationData) {
             const pts = elevationData.points.filter(p => p.distanceKm >= fromKm && p.distanceKm <= toKm);
             if (pts.length > 0) {
-              const mid = pts[Math.floor(pts.length / 2)];
-              mapFlyToRef.current?.(mid.lng, mid.lat);
+              mapFitBoundsRef.current?.(pts.map(p => ({ lat: p.lat, lng: p.lng })));
             }
           }
         }}
