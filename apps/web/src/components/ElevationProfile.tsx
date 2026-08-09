@@ -232,14 +232,17 @@ export default function ElevationProfile({
       {viewMode === 'surface' && surfaceData && (
         <div className="px-3 pb-2">
           <div className="flex h-3 w-full overflow-hidden rounded-full bg-gray-200">
-            {[
-              ['#4ade80', surfaceData.surfaceDistribution.asphalt],
-              ['#f59e0b', surfaceData.surfaceDistribution.gravel],
-              ['#d97706', surfaceData.surfaceDistribution.dirt],
-              ['#22c55e', surfaceData.surfaceDistribution.paved],
-            ].filter(([, v]) => (v as number) > 0).map(([c, v]) => (
-              <div key={c} style={{ width: v + '%', backgroundColor: c }} className="h-full first:rounded-l-full last:rounded-r-full" />
-            )))}
+            {(() => {
+              const items: Array<[string, number]> = [
+                ['#4ade80', surfaceData.surfaceDistribution.asphalt],
+                ['#f59e0b', surfaceData.surfaceDistribution.gravel],
+                ['#d97706', surfaceData.surfaceDistribution.dirt],
+                ['#22c55e', surfaceData.surfaceDistribution.paved],
+              ];
+              return items.filter(([, v]) => v > 0).map(([c, v]) =>
+                <div key={c} style={{ width: v + '%', backgroundColor: c }} className="h-full first:rounded-l-full last:rounded-r-full" />
+              );
+            })()}
           </div>
           <div className="mt-1 flex flex-wrap gap-x-2 text-[10px] text-gray-500">
             <span><span className="inline-block h-1.5 w-1.5 rounded-full bg-green-400 mr-0.5" />Asphalt {surfaceData.surfaceDistribution.asphalt}%</span>
