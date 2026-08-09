@@ -39,7 +39,7 @@ export default function GpxImportButton() {
     <>
       <input ref={fileInputRef} type="file" accept=".gpx,.xml" onChange={handleFileChange} className="hidden" />
       <button onClick={handleClick}
-        className="flex items-center gap-1 rounded-md bg-white/90 px-2 py-1 text-[10px] font-medium text-gray-600 shadow-md hover:bg-white border border-gray-200 backdrop-blur"
+        className="flex items-center gap-1 rounded-md bg-white/90 px-2 py-1 text-[10px] font-medium text-gray-600 shadow-md hover:bg-white border border-gray-200 backdrop-blur z-[1000]"
         title="GPX importieren">
         <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
           <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />

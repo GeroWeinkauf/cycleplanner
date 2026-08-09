@@ -44,7 +44,7 @@ export default function MapLayerPanel({ activeLayers, onToggleLayer, bbox, corri
   }, [open, tab, enabledPoiCats, bbox, corridorGeometry, onPoisLoaded]);
 
   return (
-    <div className="absolute bottom-3 left-3 z-10">
+    <div className="absolute bottom-3 left-3 z-[1000]">
       {!open && (
         <button onClick={() => setOpen(true)}
           className="flex items-center gap-1.5 rounded-lg bg-white/90 px-3 py-2 text-xs font-medium text-gray-700 shadow-md hover:bg-white border border-gray-200 backdrop-blur">

@@ -190,8 +190,9 @@ export default function ElevationProfile({
     });
   }
 
-  // Hover/ext highlight
+  // Hover/ext highlight — cursor nur wenn nicht am ziehen
   const showHover = hoverX !== null && dragStart === null;
+  const showMapHighlight = extHighlightX !== null && dragStart === null;
   const extHighlightX = highlightDistance != null
     ? PADDING.left + clamp((highlightDistance - distMin) / distRange, 0, 1) * innerW
     : null;
@@ -222,9 +223,9 @@ export default function ElevationProfile({
       {surfaceData && (
         <div className="flex gap-1 px-3 pb-1">
           <button onClick={() => setViewMode('elevation')}
-            className={'rounded px-2 py-0.5 text-[10px] ' + (viewMode === 'elevation' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600')}>Hoehe</button>
+            className={'rounded px-2 py-0.5 text-[10px] ' + (viewMode === 'elevation' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600')}>Höhenprofil</button>
           <button onClick={() => setViewMode('surface')}
-            className={'rounded px-2 py-0.5 text-[10px] ' + (viewMode === 'surface' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600')}>Oberflaeche</button>
+            className={'rounded px-2 py-0.5 text-[10px] ' + (viewMode === 'surface' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600')}>Oberfläche</button>
         </div>
       )}
 
@@ -262,7 +263,7 @@ export default function ElevationProfile({
         onMouseMove={handleMouseMove}
         onMouseUp={handleMouseUp}
         onMouseLeave={handleMouseLeave}
-        role="img" aria-label="Hoehenprofil"
+        role="img" aria-label={viewMode === 'elevation' ? 'Höhenprofil' : 'Oberfläche'}
       >
         {/* Area fill */}
         <path d={areaD} fill="rgba(37, 99, 235, 0.08)" stroke="none" />
@@ -303,7 +304,7 @@ export default function ElevationProfile({
         )}
 
         {/* Map highlight */}
-        {extHighlightX !== null && dragStart === null && (
+        {showMapHighlight && (
           <line x1={extHighlightX} y1={PADDING.top} x2={extHighlightX} y2={PADDING.top + innerH}
             stroke="#ef4444" strokeWidth="1.5" strokeDasharray="4,3" />
         )}

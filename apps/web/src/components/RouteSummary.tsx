@@ -80,27 +80,41 @@ export default function RouteSummary({ route, elevation, analysis }: Props) {
           </div>
 
           <div className="text-[10px] font-medium text-gray-600 mb-1">Wegtypen</div>
-          <div className="flex flex-wrap gap-x-2 text-[10px] text-gray-500">
-            {[
-              { k: 'cycleway', l: 'Radweg', v: analysis.roadClassDistribution.cycleway },
-              { k: 'path', l: 'Pfad', v: analysis.roadClassDistribution.path },
-              { k: 'residential', l: 'Wohnstr.', v: analysis.roadClassDistribution.residential },
-              { k: 'secondary', l: 'Landstr.', v: analysis.roadClassDistribution.secondary },
-              { k: 'primary', l: 'Bundesstr.', v: analysis.roadClassDistribution.primary },
-              { k: 'track', l: 'Feldweg', v: analysis.roadClassDistribution.track },
-              { k: 'tertiary', l: 'Kreisstr.', v: analysis.roadClassDistribution.tertiary },
-              { k: 'service', l: 'Service', v: analysis.roadClassDistribution.service },
-              { k: 'trunk', l: 'Schnellstr.', v: analysis.roadClassDistribution.trunk },
-              { k: 'motorway', l: 'Autobahn', v: analysis.roadClassDistribution.motorway },
-              { k: 'footway', l: 'Fußweg', v: analysis.roadClassDistribution.footway },
-              { k: 'other', l: 'Unkategorisiert', v: analysis.roadClassDistribution.other },
-            ].filter(r => r.v > 0).map(r => (
-              <span key={r.k} className="whitespace-nowrap">{r.l} {r.v}%</span>
-            ))}
+          <div className="flex h-3 w-full overflow-hidden rounded-full bg-gray-200 mb-1">
             {(() => {
-              const total = Object.values(analysis.roadClassDistribution).reduce((a, b) => a + b, 0);
-              if (total < 99) return <span className="whitespace-nowrap">Unbekannt {Math.round(100 - total)}%</span>;
-              return null;
+              const rd = analysis.roadClassDistribution;
+              const items: Array<[string, string, number]> = [
+                ['#eab308', 'Bundesstr.', rd.primary],
+                ['#6b7280', 'Landstr.', rd.secondary],
+                ['#9ca3af', 'Kreisstr.', rd.tertiary],
+                ['#d1d5db', 'Wohnstr.', rd.residential],
+                ['#a8a29e', 'Feldweg', rd.track],
+                ['#22c55e', 'Radweg', rd.cycleway],
+                ['#78716c', 'Pfad', rd.path],
+                ['#d97706', 'Unkategorisiert', rd.other + rd.service + rd.footway],
+                ['#ef4444', 'Schnellstr.', rd.trunk + rd.motorway],
+              ];
+              return items.filter(([, , v]) => v > 0).map(([c, l, v]) =>
+                <div key={l} style={{ width: v + '%', backgroundColor: c }} className="h-full first:rounded-l-full last:rounded-r-full" title={l + ': ' + v + '%'} />
+              );
+            })()}
+          </div>
+          <div className="flex flex-wrap gap-x-2 text-[10px] text-gray-500">
+            {(() => {
+              const rd = analysis.roadClassDistribution;
+              const items: Array<[string, string, number]> = [
+                ['#eab308', 'Bundesstr.', rd.primary],
+                ['#6b7280', 'Landstr.', rd.secondary],
+                ['#9ca3af', 'Kreisstr.', rd.tertiary],
+                ['#d1d5db', 'Wohnstr.', rd.residential],
+                ['#a8a29e', 'Feldweg', rd.track],
+                ['#22c55e', 'Radweg', rd.cycleway],
+                ['#78716c', 'Pfad', rd.path],
+                ['#d97706', 'Unkategorisiert', rd.other + rd.service + rd.footway],
+              ];
+              return items.filter(([, , v]) => v > 0).map(([c, l, v]) =>
+                <span key={l} className="whitespace-nowrap"><span className="inline-block h-1.5 w-1.5 rounded-full mr-0.5" style={{ backgroundColor: c }} />{l} {v}%</span>
+              );
             })()}
           </div>
         </>

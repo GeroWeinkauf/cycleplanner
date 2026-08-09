@@ -83,7 +83,7 @@ function AppInner() {
             onBboxChange={setCurrentBbox}
             pois={poiData}
           />
-          <div className="absolute top-2 right-2 z-10 flex gap-2">
+          <div className="absolute top-2 right-2 z-[1000] flex gap-2">
             <GpxImportButton />
           </div>
           <RouteHeader route={route} isFetching={isFetching} />
