@@ -12,11 +12,10 @@ import RouteSummary from './components/RouteSummary';
 import GpxExportSection from './components/GpxExportSection';
 import GpxImportButton from './components/GpxImportButton';
 import ValhallaStatus from './components/ValhallaStatus';
-import PoiDetail from './components/PoiDetail';
 import { useRouteQuery } from './hooks/useRouteQuery';
 import { useElevationQuery } from './hooks/useElevationQuery';
 import { useRouteAnalysis } from './hooks/useRouteAnalysis';
-import type { ElevationPoint, Poi } from '@cycleplanner/shared';
+import type { ElevationPoint } from '@cycleplanner/shared';
 
 const queryClient = new QueryClient();
 
@@ -26,9 +25,7 @@ function AppInner() {
   );
 
   const [highlightDistance, setHighlightDistance] = useState<number | null>(null);
-  const [currentBbox, setCurrentBbox] = useState<string | null>(null);
-  const [poiData, setPoiData] = useState<Poi[] | null>(null);
-  const [selectedPoi, setSelectedPoi] = useState<Poi | null>(null);
+  const [showRoute, setShowRoute] = useState(true);
   const mapFlyToRef = useRef<((lng: number, lat: number) => void) | null>(null);
   const mapFitBoundsRef = useRef<((points: Array<{ lat: number; lng: number }>) => void) | null>(null);
 
@@ -49,10 +46,6 @@ function AppInner() {
     setHighlightDistance(point?.distanceKm ?? null);
   }, []);
 
-  const handleElevationClick = useCallback((point: ElevationPoint) => {
-    mapFlyToRef.current?.(point.lng, point.lat);
-  }, []);
-
   return (
     <div className="relative flex h-screen w-screen flex-col overflow-hidden">
       <div className="relative flex flex-1 overflow-hidden">
@@ -66,6 +59,12 @@ function AppInner() {
           <div className="flex-1 overflow-y-auto divide-y divide-gray-200">
             <ProfilePanel />
             <ValhallaStatus />
+            <div className="px-3 py-1.5 flex items-center gap-2">
+              <label className="flex cursor-pointer items-center gap-2 text-[11px] text-gray-600">
+                <input type="checkbox" checked={showRoute} onChange={(e) => setShowRoute(e.target.checked)} className="h-3 w-3 accent-blue-600" />
+                Geplante Route anzeigen
+              </label>
+            </div>
             <WaypointList />
             <RouteSummary route={route} elevation={elevationData} analysis={analysis} />
             <GpxExportSection route={route} />
@@ -76,12 +75,12 @@ function AppInner() {
         <div className="relative flex-1">
           <MapView
             route={route}
+            showRoute={showRoute}
             isFetching={isFetching}
             highlightDistance={highlightDistance}
+            activeLayers={activeLayers}
             onMapFlyTo={(fn) => { mapFlyToRef.current = fn; }}
             onMapFitBounds={(fn) => { mapFitBoundsRef.current = fn; }}
-            onBboxChange={setCurrentBbox}
-            pois={poiData}
           />
           <div className="absolute top-2 right-2 z-[1000] flex gap-2">
             <GpxImportButton />
@@ -90,9 +89,6 @@ function AppInner() {
           <MapLayerPanel
             activeLayers={activeLayers}
             onToggleLayer={handleToggle}
-            bbox={currentBbox}
-            corridorGeometry={route?.geometry}
-            onPoisLoaded={setPoiData}
           />
           <Attribution activeLayers={activeLayers} />
         </div>
@@ -104,7 +100,6 @@ function AppInner() {
         surfaceData={analysis}
         isLoading={elevationLoading}
         onHover={handleElevationHover}
-        onClick={handleElevationClick}
         onReset={() => setHighlightDistance(null)}
         onZoomToSegment={(fromKm, toKm) => {
           setHighlightDistance(null);
@@ -116,12 +111,6 @@ function AppInner() {
           }
         }}
         highlightDistance={highlightDistance}
-      />
-
-      <PoiDetail
-        poi={selectedPoi}
-        onClose={() => setSelectedPoi(null)}
-        onFlyTo={(lng, lat) => mapFlyToRef.current?.(lng, lat)}
       />
     </div>
   );

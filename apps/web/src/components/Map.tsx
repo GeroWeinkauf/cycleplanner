@@ -16,21 +16,15 @@ L.Icon.Default.mergeOptions({
 interface MapProps {
   route?: RouteResponse | null;
   routeB?: RouteResponse | null;
+  showRoute?: boolean;
   isFetching: boolean;
   highlightDistance?: number | null;
+  activeLayers?: Set<string>;
   onMapFlyTo?: (fn: (lng: number, lat: number) => void) => void;
   onMapFitBounds?: (fn: (points: Array<{ lat: number; lng: number }>) => void) => void;
   onBboxChange?: (bbox: string) => void;
-  pois?: Array<{ lat: number; lng: number; name: string; category: string; id: string }> | null;
+  pois?: null;
 }
-
-// POI category colors
-const POI_COLORS: Record<string, string> = {
-  water: '#3b82f6', toilets: '#6366f1', restaurant: '#f97316', cafe: '#a855f7',
-  bakery: '#d97706', supermarket: '#22c55e', bikeShop: '#06b6d4', bikeRepair: '#0891b2',
-  shelter: '#78716c', campsite: '#84cc16', hotel: '#e11d48', trainStation: '#ef4444',
-  viewpoint: '#14b8a6', picnic: '#65a30d',
-};
 
 // Simplified Sachsen boundary (approximate Valhalla coverage area)
 const SACHSEN_BOUNDARY = {
@@ -54,27 +48,40 @@ const SACHSEN_BOUNDARY = {
   },
 };
 
+const LAYER_TILES: Record<string, { url: string; options: L.TileLayerOptions }> = {
+  relief: {
+    url: 'https://tile.opentopomap.org/{z}/{x}/{y}.png',
+    options: { maxZoom: 17, opacity: 0.45, attribution: '&copy; <a href="https://opentopomap.org">OpenTopoMap</a>' } as L.TileLayerOptions,
+  },
+  cycleroutes: {
+    url: 'https://tile.waymarkedtrails.org/cycling/{z}/{x}/{y}.png',
+    options: { maxZoom: 17, opacity: 0.55, minZoom: 7, attribution: '&copy; <a href="https://waymarkedtrails.org/">WaymarkedTrails</a>' } as L.TileLayerOptions,
+  },
+};
+
 export default function MapView(props: MapProps) {
-  const { route, routeB, isFetching, highlightDistance, onMapFlyTo, onBboxChange, pois } = props;
+  const { route, routeB, showRoute, isFetching, highlightDistance, activeLayers, onMapFlyTo, onBboxChange } = props;
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<L.Map | null>(null);
   const routeLineRef = useRef<L.Polyline | null>(null);
   const routeBLineRef = useRef<L.Polyline | null>(null);
   const wpMarkersRef = useRef<L.Marker[]>([]);
-  const poiLayerRef = useRef<L.GeoJSON | null>(null);
   const blockedLineRef = useRef<L.Polyline | null>(null);
   const highlightMarkerRef = useRef<L.CircleMarker | null>(null);
+  const trackLinesRef = useRef<Record<string, L.Polyline>>({});
   const routeCoordsRef = useRef<Array<[number, number]>>([]);
+  const layerTilesRef = useRef<Record<string, L.TileLayer>>({});
 
-  const { waypoints, addWaypoint, moveWaypoint, blockedSegment, setBlockedSegment } = useWaypointStore();
+  const { waypoints, addWaypoint, moveWaypoint, removeWaypoint, blockedSegment, setBlockedSegment, importedTracks } = useWaypointStore();
   const { onMapFitBounds } = props;
+  const showTracks = activeLayers?.has('tracks');
 
   // ── Init map ──────────────────────────────
   useEffect(() => {
     if (!containerRef.current || mapRef.current) return;
 
     const map = L.map(containerRef.current, {
-      center: [51.3397, 12.3731],   // Leipzig (Sachsen)
+      center: [51.3397, 12.3731],
       zoom: 12,
       attributionControl: false,
       zoomControl: true,
@@ -85,12 +92,10 @@ export default function MapView(props: MapProps) {
       attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
     }).addTo(map);
 
-    // Click to add waypoint
     map.on('click', (e: L.LeafletMouseEvent) => {
       addWaypoint(e.latlng.lat, e.latlng.lng);
     });
 
-    // Bbox change reporting
     const reportBbox = () => {
       const b = map.getBounds();
       onBboxChange?.([b.getSouth().toFixed(4), b.getWest().toFixed(4), b.getNorth().toFixed(4), b.getEast().toFixed(4)].join(','));
@@ -98,12 +103,10 @@ export default function MapView(props: MapProps) {
     map.on('moveend', reportBbox);
     reportBbox();
 
-    // Register fly-to callback
     onMapFlyTo?.((lng: number, lat: number) => {
       map.flyTo([lat, lng], Math.max(map.getZoom(), 14), { duration: 0.8 });
     });
 
-    // Register fit-bounds callback
     onMapFitBounds?.((pts: Array<{ lat: number; lng: number }>) => {
       if (pts.length === 0) return;
       const bounds = L.latLngBounds(pts.map(p => [p.lat, p.lng] as [number, number]));
@@ -112,21 +115,12 @@ export default function MapView(props: MapProps) {
 
     mapRef.current = map;
 
-    // Add Sachsen boundary overlay (non-interactive, clicks pass through)
     const sachsenStyle = {
-      color: '#f97316',
-      weight: 2,
-      opacity: 0.6,
-      fillColor: '#f97316',
-      fillOpacity: 0.05,
-      dashArray: '8,4',
+      color: '#f97316', weight: 2, opacity: 0.6,
+      fillColor: '#f97316', fillOpacity: 0.05, dashArray: '8,4',
     };
-    L.geoJSON(SACHSEN_BOUNDARY as any, {
-      style: sachsenStyle,
-      interactive: false,
-    } as any).addTo(map);
+    L.geoJSON(SACHSEN_BOUNDARY as any, { style: sachsenStyle, interactive: false } as any).addTo(map);
 
-    // Scale bar (bottom-right)
     L.control.scale({ position: 'bottomright', metric: true, imperial: false, maxWidth: 120 }).addTo(map);
 
     return () => {
@@ -135,6 +129,25 @@ export default function MapView(props: MapProps) {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // ── Tile layer toggling ───────────────────
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+
+    for (const layerId of ['relief', 'cycleroutes']) {
+      const shouldShow = activeLayers?.has(layerId);
+      const exists = !!layerTilesRef.current[layerId];
+
+      if (shouldShow && !exists) {
+        const cfg = LAYER_TILES[layerId];
+        layerTilesRef.current[layerId] = L.tileLayer(cfg.url, cfg.options).addTo(map);
+      } else if (!shouldShow && exists) {
+        map.removeLayer(layerTilesRef.current[layerId]);
+        delete layerTilesRef.current[layerId];
+      }
+    }
+  }, [activeLayers]);
 
   // ── Waypoint markers ──────────────────────
   useEffect(() => {
@@ -162,6 +175,35 @@ export default function MapView(props: MapProps) {
         }),
       });
 
+      const popupHtml = `<div style="font-size:11px;font-family:system-ui,sans-serif;min-width:100px">
+        <div style="font-weight:600;margin-bottom:4px;color:#374151">
+          ${wp.lat.toFixed(4)}, ${wp.lng.toFixed(4)}
+        </div>
+        <button class="wp-popup-del-btn" data-wpid="${wp.id}" style="width:100%;padding:3px 6px;border:1px solid #fca5a5;border-radius:4px;background:#fef2f2;color:#dc2626;font-size:11px;cursor:pointer">
+          ✕ Entfernen
+        </button>
+      </div>`;
+
+      marker.bindPopup(popupHtml, {
+        closeButton: true,
+        className: 'wp-popup',
+        offset: [0, -8],
+      });
+
+      marker.on('click', () => {
+        setTimeout(() => {
+          document.querySelectorAll('.wp-popup-del-btn').forEach((btn) => {
+            const el = btn as HTMLElement;
+            const wpid = el.dataset.wpid;
+            el.onclick = (ev) => {
+              ev.stopPropagation();
+              if (wpid) removeWaypoint(wpid);
+              marker.closePopup();
+            };
+          });
+        }, 50);
+      });
+
       marker.on('dragend', () => {
         const pos = marker.getLatLng();
         moveWaypoint(wp.id, pos.lat, pos.lng);
@@ -170,16 +212,16 @@ export default function MapView(props: MapProps) {
       marker.addTo(map);
       wpMarkersRef.current.push(marker);
     });
-  }, [waypoints, moveWaypoint]);
+  }, [waypoints, moveWaypoint, removeWaypoint]);
 
-  // ── Route line ────────────────────────────
+  // ── Route line (controlled by showRoute) ──
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
 
     if (routeLineRef.current) { routeLineRef.current.remove(); routeLineRef.current = null; }
 
-    if (route?.geometry) {
+    if (route?.geometry && showRoute) {
       const coords = decodePolyline(route.geometry);
       routeCoordsRef.current = coords;
       const latlngs = coords.map(([lng, lat]) => [lat, lng] as [number, number]);
@@ -187,7 +229,6 @@ export default function MapView(props: MapProps) {
         color: '#dc2626', weight: 4, opacity: 0.85,
       }).addTo(map);
 
-      // Shift+click → block segment
       line.on('click', (e: L.LeafletMouseEvent) => {
         if (!(e.originalEvent as MouseEvent).shiftKey) return;
         if (routeCoordsRef.current.length < 2) return;
@@ -200,7 +241,28 @@ export default function MapView(props: MapProps) {
       routeLineRef.current = line;
       map.fitBounds(line.getBounds().pad(0.1));
     }
-  }, [route, setBlockedSegment]);
+  }, [route, showRoute, setBlockedSegment]);
+
+  // ── Imported GPX tracks ───────────────────
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+
+    // Remove old track lines
+    Object.values(trackLinesRef.current).forEach((l) => l.remove());
+    trackLinesRef.current = {};
+
+    if (!showTracks) return;
+
+    // Render tracks from store — thicker and more visible
+    for (const [filename, geometry] of Object.entries(importedTracks)) {
+      const coords = decodePolyline(geometry);
+      const latlngs = coords.map(([lng, lat]) => [lat, lng] as [number, number]);
+      trackLinesRef.current[filename] = L.polyline(latlngs, {
+        color: '#0891b2', weight: 4, opacity: 0.75,
+      }).addTo(map);
+    }
+  }, [importedTracks, showTracks]);
 
   // ── Comparison route B ────────────────────
   useEffect(() => {
@@ -217,36 +279,6 @@ export default function MapView(props: MapProps) {
       }).addTo(map);
     }
   }, [routeB]);
-
-  // ── POI markers ───────────────────────────
-  useEffect(() => {
-    const map = mapRef.current;
-    if (!map) return;
-
-    if (poiLayerRef.current) { poiLayerRef.current.remove(); poiLayerRef.current = null; }
-
-    if (pois && pois.length > 0) {
-      poiLayerRef.current = L.geoJSON(
-        {
-          type: 'FeatureCollection',
-          features: pois.map((p) => ({
-            type: 'Feature' as const,
-            properties: { name: p.name, category: p.category },
-            geometry: { type: 'Point' as const, coordinates: [p.lng, p.lat] },
-          })),
-        },
-        {
-          pointToLayer: (_feature, latlng) => {
-            const cat = (_feature.properties?.category as string) || '';
-            return L.circleMarker(latlng, {
-              radius: 6, fillColor: POI_COLORS[cat] || '#9ca3af',
-              color: '#fff', weight: 1.5, fillOpacity: 0.85,
-            });
-          },
-        },
-      ).addTo(map);
-    }
-  }, [pois]);
 
   // ── Blocked segment ───────────────────────
   useEffect(() => {

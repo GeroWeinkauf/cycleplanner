@@ -16,6 +16,8 @@ RUN pnpm --filter @cycleplanner/api deploy --prod --legacy /deploy
 
 # ── Production Stage ──
 FROM node:22-alpine
+# Install Docker CLI for container management
+RUN apk add --no-cache docker-cli
 WORKDIR /app
 COPY --from=build /deploy /app
 ENV API_PORT=3000

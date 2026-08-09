@@ -187,7 +187,7 @@ export function buildApp() {
     return reply.send({ status: 'ok' });
   });
 
-  // ── Valhalla status ────────────────────────────
+  // ── Navigationsserver (Valhalla) status ─────────
   app.get<{ Reply: { running: boolean; message: string } }>(
     '/api/valhalla/status',
     async (_req, reply) => {
@@ -196,11 +196,45 @@ export function buildApp() {
           signal: AbortSignal.timeout(3000),
         });
         if (res.ok) {
-          return reply.send({ running: true, message: 'Valhalla läuft' });
+          return reply.send({ running: true, message: 'Navigationsserver läuft' });
         }
-        return reply.send({ running: false, message: 'Valhalla antwortet nicht (Status: ' + res.status + ')' });
+        return reply.send({ running: false, message: 'Navigationsserver antwortet nicht (Status: ' + res.status + ')' });
       } catch {
-        return reply.send({ running: false, message: 'Valhalla ist nicht erreichbar' });
+        return reply.send({ running: false, message: 'Navigationsserver ist nicht erreichbar' });
+      }
+    },
+  );
+
+  // ── Navigationsserver starten (Docker) ──────────
+  app.post(
+    '/api/valhalla/start',
+    async (_req, reply) => {
+      const { exec } = await import('node:child_process');
+      const VALHALLA_CONTAINER = process.env.VALHALLA_CONTAINER || 'komootersatz-valhalla-1';
+
+      console.log(`[valhalla/start] Starting container: ${VALHALLA_CONTAINER}`);
+
+      try {
+        await new Promise<void>((resolve, reject) => {
+          exec(
+            `docker start ${VALHALLA_CONTAINER}`,
+            { timeout: 30000 },
+            (error, stdout, stderr) => {
+              if (error) {
+                console.error(`[valhalla/start] docker start failed: ${stderr || error.message}`);
+                reject(new Error(stderr || error.message));
+              } else {
+                console.log(`[valhalla/start] docker start succeeded: ${stdout}`);
+                resolve();
+              }
+            },
+          );
+        });
+        return reply.send({ started: true, message: 'Navigationsserver wird gestartet' });
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.error(`[valhalla/start] Error: ${msg}`);
+        return reply.status(500).send({ started: false, message: msg });
       }
     },
   );
@@ -746,6 +780,7 @@ export function buildApp() {
 
       // Simple regex-based GPX parser (avoids XML library dependency)
       const waypoints: Array<{ lat: number; lng: number; label?: string }> = [];
+      let geometry: string | undefined;
 
       // Extract <wpt> elements
       const wptRegex = /<wpt\s+lat="([^"]+)"\s+lon="([^"]+)">[\s\S]*?<name>([^<]*)<\/name>[\s\S]*?<\/wpt>/g;
@@ -758,36 +793,44 @@ export function buildApp() {
         });
       }
 
-      // If no waypoints found from <wpt>, extract from <trkpt> or <rtept>
-      if (waypoints.length === 0) {
-        const ptRegex = /<(?:trkpt|rtept)\s+lat="([^"]+)"\s+lon="([^"]+)"/g;
-        while ((match = ptRegex.exec(gpx)) !== null) {
-          waypoints.push({
-            lat: parseFloat(match[1]),
-            lng: parseFloat(match[2]),
-          });
-        }
-
-        // If many track points, reduce to a reasonable number (keep every Nth)
-        if (waypoints.length > 20) {
-          const step = Math.ceil(waypoints.length / 15);
-          const reduced = waypoints.filter((_, i) => i % step === 0);
-          // Ensure last point is included
-          if (reduced[reduced.length - 1] !== waypoints[waypoints.length - 1]) {
-            reduced.push(waypoints[waypoints.length - 1]);
-          }
-          return reply.send({ waypoints: reduced });
-        }
+      // Extract <trkpt> or <rtept> for track geometry
+      const allTrackPoints: Array<[number, number]> = [];
+      const ptRegex = /<(?:trkpt|rtept)\s+lat="([^"]+)"\s+lon="([^"]+)"/g;
+      let ptMatch;
+      while ((ptMatch = ptRegex.exec(gpx)) !== null) {
+        const lat = parseFloat(ptMatch[1]);
+        const lng = parseFloat(ptMatch[2]);
+        allTrackPoints.push([lng, lat]);
       }
 
-      if (waypoints.length === 0) {
+      // Build polyline geometry from all track points
+      if (allTrackPoints.length >= 2) {
+        // Encode as polyline (simple JSON-encoded coordinate array)
+        geometry = JSON.stringify(allTrackPoints);
+      }
+
+      // If no waypoints found from <wpt>, use reduced track points
+      if (waypoints.length === 0 && allTrackPoints.length > 0) {
+        // Reduce to a reasonable number (keep every Nth)
+        if (allTrackPoints.length > 20) {
+          const step = Math.ceil(allTrackPoints.length / 15);
+          const reduced = allTrackPoints.filter((_, i) => i % step === 0);
+          if (reduced[reduced.length - 1] !== allTrackPoints[allTrackPoints.length - 1]) {
+            reduced.push(allTrackPoints[allTrackPoints.length - 1]);
+          }
+          return reply.send({ waypoints: reduced.map(([lng, lat]) => ({ lat, lng })), geometry });
+        }
+        return reply.send({ waypoints: allTrackPoints.map(([lng, lat]) => ({ lat, lng })), geometry });
+      }
+
+      if (waypoints.length === 0 && !geometry) {
         return reply.status(400).send({
           waypoints: [],
           geometry: undefined,
         } as { waypoints: Array<{ lat: number; lng: number; label?: string }>; geometry?: string });
       }
 
-      return reply.send({ waypoints });
+      return reply.send({ waypoints, geometry });
     },
   );
 

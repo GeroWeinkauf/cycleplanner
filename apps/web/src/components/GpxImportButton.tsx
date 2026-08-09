@@ -5,6 +5,7 @@ const API_BASE = '/api';
 
 export default function GpxImportButton() {
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const addImportedTrack = useWaypointStore((s) => s.addImportedTrack);
 
   const handleClick = useCallback(() => {
     fileInputRef.current?.click();
@@ -21,19 +22,20 @@ export default function GpxImportButton() {
         body: JSON.stringify({ gpx: text }),
       });
       if (!res.ok) throw new Error('Import failed');
-      const data = (await res.json()) as { waypoints: Array<{ lat: number; lng: number; label?: string }> };
-      if (data.waypoints.length > 0) {
-        const store = useWaypointStore.getState();
-        store.clearWaypoints();
-        for (const wp of data.waypoints) {
-          store.addWaypoint(wp.lat, wp.lng, 'break');
-        }
+      const data = (await res.json()) as {
+        waypoints: Array<{ lat: number; lng: number; label?: string }>;
+        geometry?: string;
+      };
+      if (data.geometry) {
+        addImportedTrack(file.name, data.geometry);
       }
+      // Waypoints werden NICHT automatisch übernommen.
+      // Nutzer kann im Ebenen-Panel "↳ Als Route übernehmen" klicken.
     } catch (err) {
       console.error('GPX import failed:', err);
     }
     if (fileInputRef.current) fileInputRef.current.value = '';
-  }, []);
+  }, [addImportedTrack]);
 
   return (
     <>

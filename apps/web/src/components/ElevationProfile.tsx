@@ -24,22 +24,41 @@ function clamp(v: number, min: number, max: number): number {
 /** Slope to color: green (flat) → yellow → orange → red (steep) */
 function slopeColor(slopePercent: number): string {
   const s = Math.min(Math.abs(slopePercent), 20);
-  if (s < 2) return '#22c55e';    // green
-  if (s < 5) return '#84cc16';    // lime
-  if (s < 8) return '#eab308';    // yellow
-  if (s < 12) return '#f97316';    // orange
-  return '#ef4444';               // red
+  if (s < 2) return '#22c55e';
+  if (s < 5) return '#84cc16';
+  if (s < 8) return '#eab308';
+  if (s < 12) return '#f97316';
+  return '#ef4444';
 }
 
 export default function ElevationProfile({
-  data, surfaceData, isLoading, onHover, onClick, onReset, onZoomToSegment, highlightDistance,
+  data, surfaceData, isLoading, onHover, onReset, onZoomToSegment, highlightDistance,
 }: Props) {
   const svgRef = useRef<SVGSVGElement>(null);
-  const [hoverX, setHoverX] = useState<number | null>(null);
+  const svgWidthRef = useRef<number>(0);
   const [viewMode, setViewMode] = useState<ViewMode>('elevation');
   const [dragStart, setDragStart] = useState<number | null>(null);
   const [dragEnd, setDragEnd] = useState<number | null>(null);
-  const [zoomed, setZoomed] = useState(false);
+
+  // Stack of zoom levels. Each entry is [fromKm, toKm].
+  // Uses a ref + state: ref for stale-closure-free reads in callbacks,
+  // state to trigger re-renders.
+  const zoomStackRef = useRef<Array<[number, number]>>([]);
+  const [zoomLevel, setZoomLevel] = useState(0); // triggers re-render on change
+  const zoomed = zoomStackRef.current.length > 0;
+  const currentZoom = zoomStackRef.current.length > 0 ? zoomStackRef.current[zoomStackRef.current.length - 1] : null;
+
+  const pushZoom = useCallback((from: number, to: number) => {
+    zoomStackRef.current = [...zoomStackRef.current, [from, to]];
+    setZoomLevel(n => n + 1);
+    onZoomToSegment?.(from, to);
+  }, [onZoomToSegment]);
+
+  const popAllZoom = useCallback(() => {
+    zoomStackRef.current = [];
+    setZoomLevel(0);
+    onReset?.();
+  }, [onReset]);
 
   const getSvgPos = useCallback((clientX: number) => {
     if (!svgRef.current) return null;
@@ -47,89 +66,80 @@ export default function ElevationProfile({
     const x = clientX - rect.left - PADDING.left;
     const innerW = rect.width - PADDING.left - PADDING.right;
     if (innerW <= 0) return null;
+    svgWidthRef.current = innerW;
     return { x: clamp(x, 0, innerW), innerW };
   }, []);
-
-  const getPointAt = useCallback((x: number, innerW: number) => {
-    if (!data || !data.points.length) return null;
-    const fraction = clamp(x / innerW, 0, 1);
-    const idx = Math.round(fraction * (data.points.length - 1));
-    return data.points[idx];
-  }, [data]);
 
   const handleMouseDown = useCallback((e: React.MouseEvent<SVGSVGElement>) => {
     const pos = getSvgPos(e.clientX);
     if (!pos) return;
     setDragStart(pos.x);
     setDragEnd(pos.x);
-    setZoomed(false);
   }, [getSvgPos]);
 
   const handleMouseMove = useCallback((e: React.MouseEvent<SVGSVGElement>) => {
     const pos = getSvgPos(e.clientX);
     if (!pos || !data) return;
-    setHoverX(pos.x);
-    const pt = getPointAt(pos.x, pos.innerW);
-    onHover?.(pt);
+    const fraction = clamp(pos.x / pos.innerW, 0, 1);
+    const idx = Math.round(fraction * (data.points.length - 1));
+    onHover?.(data.points[idx]);
     if (dragStart !== null) {
       setDragEnd(pos.x);
     }
-  }, [getSvgPos, data, onHover, dragStart, getPointAt]);
+  }, [getSvgPos, data, onHover, dragStart]);
 
   const handleMouseUp = useCallback(() => {
-    if (dragStart !== null && dragEnd !== null && Math.abs(dragEnd - dragStart) > 10) {
-      // Drag completed — zoom to segment
-      setZoomed(true);
-      if (onZoomToSegment && data) {
-        const innerW = 800;
-        const distMin = data.points[0].distanceKm;
-        const distRange = data.points[data.points.length - 1].distanceKm - distMin || 1;
-        const fromFrac = clamp(Math.min(dragStart, dragEnd) / innerW, 0, 1);
-        const toFrac = clamp(Math.max(dragStart, dragEnd) / innerW, 0, 1);
-        onZoomToSegment(
-          distMin + fromFrac * distRange,
-          distMin + toFrac * distRange,
-        );
-      }
+    if (dragStart !== null && dragEnd !== null && Math.abs(dragEnd - dragStart) > 10 && data) {
+      const innerW = svgWidthRef.current || 800;
+      // Use currently visible points (respects existing zoom level)
+      const prevZoom = zoomStackRef.current.length > 0 ? zoomStackRef.current[zoomStackRef.current.length - 1] : null;
+      const pts = prevZoom
+        ? data.points.filter(p => p.distanceKm >= prevZoom[0] - 0.0001 && p.distanceKm <= prevZoom[1] + 0.0001)
+        : data.points;
+      if (pts.length < 2) return;
+      const distMin = pts[0].distanceKm;
+      const distRange = pts[pts.length - 1].distanceKm - distMin || 1;
+      const fromFrac = clamp(Math.min(dragStart, dragEnd) / innerW, 0, 1);
+      const toFrac = clamp(Math.max(dragStart, dragEnd) / innerW, 0, 1);
+      const fromDist = distMin + fromFrac * distRange;
+      const toDist = distMin + toFrac * distRange;
+      pushZoom(fromDist, toDist);
     }
     setDragStart(null);
     setDragEnd(null);
-  }, [dragStart, dragEnd, onZoomToSegment, data]);
+  }, [dragStart, dragEnd, onZoomToSegment, data, pushZoom]);
 
   const handleMouseLeave = useCallback(() => {
-    setHoverX(null);
     onHover?.(null);
     setDragStart(null);
     setDragEnd(null);
   }, [onHover]);
 
   const handleResetZoom = useCallback(() => {
-    setZoomed(false);
     setDragStart(null);
     setDragEnd(null);
-    onReset?.();
-  }, [onReset]);
+    popAllZoom();
+  }, [popAllZoom]);
 
   // ── Empty / loading states ─────────────────
   if (isLoading) {
-    return <div className="flex h-12 items-center justify-center bg-gray-50 text-xs text-gray-400">Berechne Hoehenprofil...</div>;
+    return <div className="flex h-12 items-center justify-center bg-gray-50 text-xs text-gray-400">Berechne Höhenprofil...</div>;
   }
   if (!data || !data.points.length) {
-    return <div className="flex h-10 items-center justify-center bg-gray-50 text-[11px] text-gray-400">Kein Hoehenprofil</div>;
+    return <div className="flex h-10 items-center justify-center bg-gray-50 text-[11px] text-gray-400">Kein Höhenprofil</div>;
   }
 
   // ── Compute scales ─────────────────────────
-  let { points, metrics } = data;
+  const { metrics } = data;
+  let points = data.points;
+  let zoomLabel = '';
 
-  // Filter to zoomed segment
-  if (zoomed && dragStart !== null && dragEnd !== null) {
-    const innerW = 800;
-    const distMin = points[0].distanceKm;
-    const distRange = points[points.length - 1].distanceKm - distMin || 1;
-    const fromDist = distMin + clamp(Math.min(dragStart, dragEnd) / innerW, 0, 1) * distRange;
-    const toDist = distMin + clamp(Math.max(dragStart, dragEnd) / innerW, 0, 1) * distRange;
-    points = points.filter(p => p.distanceKm >= fromDist - 0.001 && p.distanceKm <= toDist + 0.001);
+  // Filter to zoomed segment (apply all zoom levels cumulatively)
+  if (currentZoom) {
+    const [fromDist, toDist] = currentZoom;
+    points = points.filter(p => p.distanceKm >= fromDist - 0.0001 && p.distanceKm <= toDist + 0.0001);
     if (points.length < 2) points = data.points;
+    else zoomLabel = `${fromDist.toFixed(1)}–${toDist.toFixed(1)} km`;
   }
 
   const innerW = 800;
@@ -145,7 +155,6 @@ export default function ElevationProfile({
   const elevViewMax = elevMax + elevPad;
   const elevViewRange = elevViewMax - elevViewMin;
 
-  // Scale helpers
   const toX = (km: number) => PADDING.left + ((km - distMin) / distRange) * innerW;
   const toY = (elev: number) => PADDING.top + ((elevViewMax - elev) / elevViewRange) * innerH;
 
@@ -163,14 +172,12 @@ export default function ElevationProfile({
     });
   }
 
-  // Area fill
   const areaD = points.map((p, i) => {
     const cmd = i === 0 ? 'M' : 'L';
     return cmd + ' ' + toX(p.distanceKm).toFixed(1) + ' ' + toY(p.elevation).toFixed(1);
   }).join(' ') + ' L ' + toX(distMax).toFixed(1) + ' ' + (PADDING.top + innerH).toFixed(1) +
     ' L ' + toX(distMin).toFixed(1) + ' ' + (PADDING.top + innerH).toFixed(1) + ' Z';
 
-  // Y-axis ticks
   const yTicks = 4;
   const yLabels: Array<{ y: number; label: string }> = [];
   for (let i = 0; i <= yTicks; i++) {
@@ -178,7 +185,6 @@ export default function ElevationProfile({
     yLabels.push({ y: toY(elev), label: Math.round(elev) + '' });
   }
 
-  // X-axis ticks
   const xTicks = Math.min(5, Math.max(2, Math.floor(distRange * 2)));
   const xLabels: Array<{ x: number; label: string }> = [];
   const xStep = distRange / xTicks;
@@ -190,14 +196,11 @@ export default function ElevationProfile({
     });
   }
 
-  // Hover/ext highlight — cursor nur wenn nicht am ziehen
-  const showHover = hoverX !== null && dragStart === null;
-  const showMapHighlight = extHighlightX !== null && dragStart === null;
-  const extHighlightX = highlightDistance != null
+  // Single highlight cursor: map hover (red) when not dragging
+  const extHighlightX = highlightDistance != null && dragStart === null
     ? PADDING.left + clamp((highlightDistance - distMin) / distRange, 0, 1) * innerW
     : null;
 
-  // Drag selection highlight
   const selLeft = dragStart !== null && dragEnd !== null ? Math.min(dragStart, dragEnd) + PADDING.left : null;
   const selRight = dragStart !== null && dragEnd !== null ? Math.max(dragStart, dragEnd) + PADDING.left : null;
 
@@ -210,14 +213,18 @@ export default function ElevationProfile({
         <span><span className="font-semibold text-gray-800">{metrics.minElevation}–{metrics.maxElevation} m</span></span>
         <span><span className="font-semibold text-gray-800">{metrics.maxSlope}%</span> max</span>
         {zoomed && (
-          <button onClick={handleResetZoom} className="ml-auto rounded bg-gray-100 px-2 py-0.5 text-[10px] text-gray-600 hover:bg-gray-200">
-            ✕ Zurueck
+          <button onClick={handleResetZoom} className="ml-auto rounded bg-blue-600 px-2 py-0.5 text-[10px] text-white hover:bg-blue-700">
+            ← Zurück
           </button>
         )}
-        {!zoomed && highlightDistance != null && onReset && (
-          <button onClick={handleResetZoom} className="ml-auto text-[10px] text-gray-400 hover:text-gray-600">✕</button>
+        {!zoomed && onReset && (
+          <span className="ml-auto text-[10px] text-gray-400 select-none">↔ ziehen zum Zoomen</span>
         )}
       </div>
+
+      {zoomed && zoomLabel && (
+        <div className="px-3 pb-1 text-[10px] text-blue-600 font-medium">{zoomLabel}</div>
+      )}
 
       {/* View toggle */}
       {surfaceData && (
@@ -265,27 +272,22 @@ export default function ElevationProfile({
         onMouseLeave={handleMouseLeave}
         role="img" aria-label={viewMode === 'elevation' ? 'Höhenprofil' : 'Oberfläche'}
       >
-        {/* Area fill */}
         <path d={areaD} fill="rgba(37, 99, 235, 0.08)" stroke="none" />
 
-        {/* Slope-colored segments */}
         {segments.map((seg, i) => (
           <line key={i} x1={seg.x1} y1={seg.y1} x2={seg.x2} y2={seg.y2}
             stroke={seg.color} strokeWidth="1.5" strokeLinecap="round" />
         ))}
 
-        {/* Grid lines */}
         {yLabels.map((t, i) => (
           <line key={'yg-' + i} x1={PADDING.left} y1={t.y} x2={PADDING.left + innerW} y2={t.y} stroke="#f3f4f6" strokeWidth="0.5" />
         ))}
 
-        {/* Y-axis labels */}
         {yLabels.map((t, i) => (
           <text key={'yl-' + i} x={PADDING.left - 5} y={t.y + 3} textAnchor="end"
             fill="#9ca3af" fontFamily="system-ui" fontSize="9" fontWeight="400">{t.label}</text>
         ))}
 
-        {/* X-axis labels */}
         {xLabels.map((t, i) => (
           <text key={'xl-' + i} x={t.x} y={PADDING.top + innerH + 14} textAnchor="middle"
             fill="#9ca3af" fontFamily="system-ui" fontSize="9" fontWeight="400">{t.label}</text>
@@ -297,14 +299,8 @@ export default function ElevationProfile({
             fill="rgba(99, 102, 241, 0.12)" stroke="rgba(99, 102, 241, 0.4)" strokeWidth="1" strokeDasharray="4,2" />
         )}
 
-        {/* Hover cursor */}
-        {showHover && (
-          <line x1={hoverX! + PADDING.left} y1={PADDING.top} x2={hoverX! + PADDING.left} y2={PADDING.top + innerH}
-            stroke="#f59e0b" strokeWidth="1" strokeDasharray="3,2" />
-        )}
-
-        {/* Map highlight */}
-        {showMapHighlight && (
+        {/* Map highlight cursor (single line, only when not dragging) */}
+        {extHighlightX !== null && dragStart === null && (
           <line x1={extHighlightX} y1={PADDING.top} x2={extHighlightX} y2={PADDING.top + innerH}
             stroke="#ef4444" strokeWidth="1.5" strokeDasharray="4,3" />
         )}

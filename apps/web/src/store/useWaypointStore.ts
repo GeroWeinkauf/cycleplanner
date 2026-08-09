@@ -12,14 +12,20 @@ interface WaypointState {
   waypoints: Waypoint[];
   /** Segment to block, as [lng, lat][] polyline */
   blockedSegment: Array<[number, number]> | null;
+  /** Imported GPX tracks: filename → geometry polyline string */
+  importedTracks: Record<string, string>;
   addWaypoint: (lat: number, lng: number, type?: 'break' | 'through') => void;
   insertWaypointAt: (index: number, lat: number, lng: number) => void;
   moveWaypoint: (id: string, lat: number, lng: number) => void;
+  setWaypointType: (id: string, type: 'break' | 'through') => void;
   removeWaypoint: (id: string) => void;
   reorderWaypoints: (fromIndex: number, toIndex: number) => void;
   reverseWaypoints: () => void;
   clearWaypoints: () => void;
   setBlockedSegment: (segment: Array<[number, number]> | null) => void;
+  addImportedTrack: (filename: string, geometry: string) => void;
+  removeImportedTrack: (filename: string) => void;
+  clearImportedTracks: () => void;
 }
 
 let nextId = 1;
@@ -30,6 +36,7 @@ function uid(): string {
 export const useWaypointStore = create<WaypointState>((set) => ({
   waypoints: [],
   blockedSegment: null,
+  importedTracks: {},
 
   addWaypoint: (lat, lng, type = 'break') =>
     set((state) => {
@@ -57,6 +64,11 @@ export const useWaypointStore = create<WaypointState>((set) => ({
       waypoints: state.waypoints.map((wp) => (wp.id === id ? { ...wp, lat, lng } : wp)),
     })),
 
+  setWaypointType: (id, type) =>
+    set((state) => ({
+      waypoints: state.waypoints.map((wp) => (wp.id === id ? { ...wp, type } : wp)),
+    })),
+
   removeWaypoint: (id) =>
     set((state) => ({
       waypoints: state.waypoints.filter((wp) => wp.id !== id),
@@ -78,4 +90,18 @@ export const useWaypointStore = create<WaypointState>((set) => ({
   clearWaypoints: () => set({ waypoints: [], blockedSegment: null }),
 
   setBlockedSegment: (segment) => set({ blockedSegment: segment }),
+
+  addImportedTrack: (filename, geometry) =>
+    set((state) => ({
+      importedTracks: { ...state.importedTracks, [filename]: geometry },
+    })),
+
+  removeImportedTrack: (filename) =>
+    set((state) => {
+      const next = { ...state.importedTracks };
+      delete next[filename];
+      return { importedTracks: next };
+    }),
+
+  clearImportedTracks: () => set({ importedTracks: {} }),
 }));
