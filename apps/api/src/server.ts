@@ -1,7 +1,7 @@
 import { buildApp } from './index.js';
 
 const PORT = parseInt(process.env.API_PORT || '3000', 10);
-const HOST = process.env.API_HOST || '127.0.0.1';
+const HOST = process.env.API_HOST || '0.0.0.0';
 
 const app = buildApp();
 app.log.level = 'info';
