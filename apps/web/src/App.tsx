@@ -12,10 +12,12 @@ import RouteSummary from './components/RouteSummary';
 import GpxExportSection from './components/GpxExportSection';
 import GpxImportButton from './components/GpxImportButton';
 import ValhallaStatus from './components/ValhallaStatus';
+import PoiControls from './components/PoiControls';
+import PoiDetail from './components/PoiDetail';
 import { useRouteQuery } from './hooks/useRouteQuery';
 import { useElevationQuery } from './hooks/useElevationQuery';
 import { useRouteAnalysis } from './hooks/useRouteAnalysis';
-import type { ElevationPoint } from '@cycleplanner/shared';
+import type { ElevationPoint, Poi } from '@cycleplanner/shared';
 
 const queryClient = new QueryClient();
 
@@ -26,8 +28,10 @@ function AppInner() {
 
   const [highlightDistance, setHighlightDistance] = useState<number | null>(null);
   const [showRoute, setShowRoute] = useState(true);
+  const [selectedPoi, setSelectedPoi] = useState<Poi | null>(null);
   const mapFlyToRef = useRef<((lng: number, lat: number) => void) | null>(null);
   const mapFitBoundsRef = useRef<((points: Array<{ lat: number; lng: number }>) => void) | null>(null);
+  const [bbox, setBbox] = useState<string | null>(null);
 
   const handleToggle = useCallback((layerId: string) => {
     setActiveLayers((prev) => {
@@ -36,6 +40,18 @@ function AppInner() {
       else next.add(layerId);
       return next;
     });
+  }, []);
+
+  const handleBboxChange = useCallback((newBbox: string) => {
+    setBbox(newBbox);
+  }, []);
+
+  const handlePoiClick = useCallback((poi: Poi) => {
+    setSelectedPoi(poi);
+  }, []);
+
+  const handlePoiClose = useCallback(() => {
+    setSelectedPoi(null);
   }, []);
 
   const { data: route, isFetching } = useRouteQuery();
@@ -67,6 +83,11 @@ function AppInner() {
             </div>
             <WaypointList />
             <RouteSummary route={route} elevation={elevationData} analysis={analysis} />
+            <PoiControls
+              bbox={bbox}
+              corridorGeometry={route?.geometry}
+              onPoiClick={handlePoiClick}
+            />
             <GpxExportSection route={route} />
           </div>
         </div>
@@ -81,6 +102,7 @@ function AppInner() {
             activeLayers={activeLayers}
             onMapFlyTo={(fn) => { mapFlyToRef.current = fn; }}
             onMapFitBounds={(fn) => { mapFitBoundsRef.current = fn; }}
+            onBboxChange={handleBboxChange}
           />
           <div className="absolute top-2 right-2 z-[1000] flex gap-2">
             <GpxImportButton />
@@ -91,6 +113,13 @@ function AppInner() {
             onToggleLayer={handleToggle}
           />
           <Attribution activeLayers={activeLayers} />
+
+          {/* ── POI Detail Popup (bottom center) ── */}
+          <PoiDetail
+            poi={selectedPoi}
+            onClose={handlePoiClose}
+            onFlyTo={mapFlyToRef.current || undefined}
+          />
         </div>
       </div>
 

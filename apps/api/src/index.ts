@@ -25,6 +25,8 @@ import { computeQualityScore } from './analysis/score-service.js';
 import { generateCandidates } from './analysis/candidates-service.js';
 import { queryPois } from './poi/poi-service.js';
 import { runAiAgent } from './ai/ai-agent.js';
+import { findGooglePlace } from './poi/google-places.js';
+import type { GooglePlaceDetails } from './poi/google-places.js';
 import {
   listPresets,
   getPreset,
@@ -1132,6 +1134,35 @@ export function buildApp() {
       } catch (err) {
         req.log.error({ err }, 'Candidate generation failed');
         return reply.status(500).send({ error: 'Candidates failed' } as { error: string });
+      }
+    },
+  );
+
+  // ── Google Places Detail ──────────────────────
+  app.post<{
+    Body: { name: string; lat: number; lng: number; category: string };
+    Reply: { place: Record<string, unknown> | null; usage: { callsThisMonth: number; limit: number } } | { error: string };
+  }>(
+    '/api/pois/google-place',
+    async (req, reply) => {
+      try {
+        const poi = {
+          id: 'google-' + Date.now(),
+          name: req.body.name,
+          lat: req.body.lat,
+          lng: req.body.lng,
+          category: req.body.category || 'supermarket',
+          tags: {} as Record<string, string>,
+          source: 'overpass' as const,
+        };
+        const result = await findGooglePlace(poi);
+        return reply.send({
+          place: result.place as unknown as Record<string, unknown> | null,
+          usage: result.usage,
+        });
+      } catch (err) {
+        req.log.error({ err }, 'Google Places lookup failed');
+        return reply.status(500).send({ error: 'Google Places lookup failed' } as { error: string });
       }
     },
   );

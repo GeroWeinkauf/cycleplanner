@@ -1,7 +1,9 @@
 data/
+!data/usage/google-places-usage.json
 node_modules/
 .env
 dist/
 *.osm.pbf
 .pnpm-store/
 .claude/
+auth/google-api-key.txt

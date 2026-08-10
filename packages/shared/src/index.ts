@@ -129,6 +129,7 @@ export interface RouteRequest {
   profile: ProfileId;
   costingOverrides?: CostingOverrides;
   exclusionFlags?: ExclusionFlags;
+  excludePolygon?: Array<{ lat: number; lng: number }>;
 }
 
 /** Summary of a computed route */

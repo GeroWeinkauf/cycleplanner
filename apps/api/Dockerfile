@@ -14,6 +14,15 @@ RUN pnpm --filter @cycleplanner/api build
 # Use pnpm deploy to create a standalone, flat-node_modules deployment
 RUN pnpm --filter @cycleplanner/api deploy --prod --legacy /deploy
 
+# Copy shared package dist into the deploy directory
+RUN mkdir -p /deploy/node_modules/@cycleplanner/shared && \
+    cp -r packages/shared/dist /deploy/node_modules/@cycleplanner/shared/dist && \
+    cp packages/shared/package.json /deploy/node_modules/@cycleplanner/shared/package.json
+
+# Copy extra config files
+RUN mkdir -p /deploy/config && \
+    cp config/profiles.json config/score-weights.json /deploy/config/ 2>/dev/null || true
+
 # ── Production Stage ──
 FROM node:22-alpine
 # Install Docker CLI for container management
