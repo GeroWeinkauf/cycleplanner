@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import MapView from './components/Map';
 import MapLayerPanel from './components/MapLayerPanel';
@@ -12,7 +12,6 @@ import RouteSummary from './components/RouteSummary';
 import GpxExportSection from './components/GpxExportSection';
 import GpxImportButton from './components/GpxImportButton';
 import ValhallaStatus from './components/ValhallaStatus';
-import PoiControls from './components/PoiControls';
 import PoiDetail from './components/PoiDetail';
 import { useRouteQuery } from './hooks/useRouteQuery';
 import { useElevationQuery } from './hooks/useElevationQuery';
@@ -29,6 +28,7 @@ function AppInner() {
   const [highlightDistance, setHighlightDistance] = useState<number | null>(null);
   const [showRoute, setShowRoute] = useState(true);
   const [selectedPoi, setSelectedPoi] = useState<Poi | null>(null);
+  const [supermarketPois, setSupermarketPois] = useState<Poi[]>([]);
   const mapFlyToRef = useRef<((lng: number, lat: number) => void) | null>(null);
   const mapFitBoundsRef = useRef<((points: Array<{ lat: number; lng: number }>) => void) | null>(null);
   const [bbox, setBbox] = useState<string | null>(null);
@@ -50,9 +50,29 @@ function AppInner() {
     setSelectedPoi(poi);
   }, []);
 
+  const handleGoogleMaps = useCallback((poi: Poi) => {
+    window.open(`https://www.google.com/maps/dir/?api=1&destination=${poi.lat},${poi.lng}&travelmode=bicycling`, '_blank');
+  }, []);
+
   const handlePoiClose = useCallback(() => {
     setSelectedPoi(null);
   }, []);
+
+  // Fetch supermarket POIs whenever the map bbox changes
+  useEffect(() => {
+    if (!bbox) return;
+    const controller = new AbortController();
+    fetch('/api/pois', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ bbox, categories: ['supermarket'], limit: 150 }),
+      signal: controller.signal,
+    })
+      .then((r) => r.json())
+      .then((data: { pois: Poi[] }) => setSupermarketPois(data.pois ?? []))
+      .catch(() => {});
+    return () => controller.abort();
+  }, [bbox]);
 
   const { data: route, isFetching } = useRouteQuery();
   const { data: elevationData, isLoading: elevationLoading } = useElevationQuery(route?.geometry);
@@ -83,11 +103,6 @@ function AppInner() {
             </div>
             <WaypointList />
             <RouteSummary route={route} elevation={elevationData} analysis={analysis} />
-            <PoiControls
-              bbox={bbox}
-              corridorGeometry={route?.geometry}
-              onPoiClick={handlePoiClick}
-            />
             <GpxExportSection route={route} />
           </div>
         </div>
@@ -100,9 +115,11 @@ function AppInner() {
             isFetching={isFetching}
             highlightDistance={highlightDistance}
             activeLayers={activeLayers}
+            supermarketPois={supermarketPois}
             onMapFlyTo={(fn) => { mapFlyToRef.current = fn; }}
             onMapFitBounds={(fn) => { mapFitBoundsRef.current = fn; }}
             onBboxChange={handleBboxChange}
+            onPoiClick={handlePoiClick}
           />
           <div className="absolute top-2 right-2 z-[1000] flex gap-2">
             <GpxImportButton />
@@ -114,11 +131,12 @@ function AppInner() {
           />
           <Attribution activeLayers={activeLayers} />
 
-          {/* ── POI Detail Popup (bottom center) ── */}
+          {/* ── POI Detail Popup ── */}
           <PoiDetail
             poi={selectedPoi}
             onClose={handlePoiClose}
             onFlyTo={mapFlyToRef.current || undefined}
+            onGoogleMaps={handleGoogleMaps}
           />
         </div>
       </div>

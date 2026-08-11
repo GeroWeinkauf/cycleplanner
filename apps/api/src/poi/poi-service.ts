@@ -44,6 +44,14 @@ function setCache(key: string, data: Poi[]): void {
   }
 }
 
+// ── Overpass endpoints ──────────────────────
+
+const OVERPASS_ENDPOINTS = [
+  'https://maps.mail.ru/osm/tools/overpass/api/interpreter',
+  'https://overpass-api.de/api/interpreter',
+  'https://overpass.kumi.systems/api/interpreter',
+];
+
 // ── Overpass query building ─────────────────
 
 function buildOverpassQuery(
@@ -70,7 +78,7 @@ function buildOverpassQuery(
   });
 
   const query =
-    '[out:json][timeout:15][maxsize:1073741824];(' +
+    '[out:json][timeout:15];(' +
     tagFilters.join('\n') +
     ');out body ' + limit + ';';
 
@@ -177,41 +185,71 @@ export async function queryPois(
   const cached = getCached(ck);
   if (cached) return cached;
 
-  // Call Overpass API
-  try {
-    const res = await fetch('https://overpass-api.de/api/interpreter', {
-      method: 'POST',
-      headers: { 'Content-Type': 'text/plain' },
-      body: query,
-    });
+  // Call Overpass API with fallback endpoints
+  let lastError: unknown = null;
+  
+  for (const endpoint of OVERPASS_ENDPOINTS) {
+    try {
+      console.log('[poi] Trying endpoint:', endpoint);
+      
+      const res = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain', 'User-Agent': 'CyclePlanner/1.0' },
+        body: query,
+      });
 
-    if (!res.ok) return [];
+      console.log('[poi] Response status:', res.status);
+      
+      if (!res.ok) {
+        const errText = await res.text().catch(() => '');
+        console.error('[poi] Error from', endpoint, ':', errText.substring(0, 200));
+        lastError = new Error('HTTP ' + res.status + ': ' + errText.substring(0, 100));
+        continue; // try next endpoint
+      }
 
-    const data = (await res.json()) as { elements?: OverpassElement[] };
-    const elements = data.elements || [];
+      const rawText = await res.text();
+      console.log('[poi] Got', rawText.length, 'bytes from', endpoint);
+      
+      let data: { elements?: OverpassElement[] };
+      try {
+        data = JSON.parse(rawText);
+      } catch (parseErr) {
+        console.error('[poi] JSON parse error from', endpoint, ':', String(parseErr));
+        lastError = parseErr;
+        continue;
+      }
+      
+      const elements = data.elements || [];
+      console.log('[poi] Overpass returned', elements.length, 'elements');
 
-    const pois: Poi[] = elements
-      .filter((el) => el.type === 'node' && el.lat !== undefined && el.lon !== undefined)
-      .map((el) => {
-        const tags = el.tags || {};
-        const category = classifyPoi(tags);
-        return {
-          id: 'poi-' + el.id,
-          name: tags.name || tags.ref || '',
-          lat: el.lat!,
-          lng: el.lon!,
-          category,
-          tags,
-          source: 'overpass' as PoiSource,
-        };
-      })
-      .slice(0, limit);
+      const pois: Poi[] = elements
+        .filter((el) => el.type === 'node' && el.lat !== undefined && el.lon !== undefined)
+        .map((el) => {
+          const tags = el.tags || {};
+          const category = classifyPoi(tags);
+          return {
+            id: 'poi-' + el.id,
+            name: tags.name || tags.ref || '',
+            lat: el.lat!,
+            lng: el.lon!,
+            category,
+            tags,
+            source: 'overpass' as PoiSource,
+          };
+        })
+        .slice(0, limit);
 
-    setCache(ck, pois);
-    return pois;
-  } catch {
-    return [];
+      console.log('[poi] Returning', pois.length, 'POIs');
+      setCache(ck, pois);
+      return pois;
+    } catch (err) {
+      console.error('[poi] Fetch error for', endpoint, ':', String(err));
+      lastError = err;
+    }
   }
+  
+  console.error('[poi] All Overpass endpoints failed. Last error:', String(lastError));
+  return [];
 }
 
 /**

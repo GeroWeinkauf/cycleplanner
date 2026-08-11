@@ -3,7 +3,7 @@ import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { useWaypointStore } from '../store/useWaypointStore';
 import { decodePolyline, nearestPointOnLine } from '../lib/polyline';
-import type { RouteResponse } from '@cycleplanner/shared';
+import type { RouteResponse, Poi } from '@cycleplanner/shared';
 
 // Fix Leaflet default icon paths
 delete (L.Icon.Default.prototype as Record<string, unknown>)._getIconUrl;
@@ -20,30 +20,22 @@ interface MapProps {
   isFetching: boolean;
   highlightDistance?: number | null;
   activeLayers?: Set<string>;
+  supermarketPois?: Poi[];
   onMapFlyTo?: (fn: (lng: number, lat: number) => void) => void;
   onMapFitBounds?: (fn: (points: Array<{ lat: number; lng: number }>) => void) => void;
   onBboxChange?: (bbox: string) => void;
-  pois?: null;
+  onPoiRightClick?: (poi: Poi) => void;
+  onPoiClick?: (poi: Poi) => void;
 }
 
-// Simplified Sachsen boundary (approximate Valhalla coverage area)
-const SACHSEN_BOUNDARY = {
+// Simplified Sachsen + Sachsen-Anhalt boundary
+const SAXONY_BOUNDARY = {
   type: 'Feature',
-  properties: { name: 'Sachsen' },
+  properties: { name: 'Sachsen + Sachsen-Anhalt' },
   geometry: {
     type: 'Polygon',
     coordinates: [[
-      [12.06, 51.62], [12.22, 51.67], [12.38, 51.61], [12.60, 51.55],
-      [12.81, 51.42], [13.05, 51.35], [13.20, 51.18], [13.39, 51.02],
-      [13.62, 50.93], [13.95, 50.79], [14.30, 50.57], [14.60, 50.44],
-      [14.86, 50.45], [15.02, 50.32], [14.90, 50.22], [14.70, 50.20],
-      [14.55, 50.25], [14.42, 50.35], [14.20, 50.32], [13.98, 50.38],
-      [13.80, 50.48], [13.62, 50.55], [13.40, 50.59], [13.18, 50.55],
-      [12.92, 50.52], [12.70, 50.60], [12.52, 50.68], [12.35, 50.72],
-      [12.22, 50.65], [12.10, 50.52], [12.08, 50.42], [12.14, 50.35],
-      [12.00, 50.28], [11.88, 50.28], [11.78, 50.35], [11.72, 50.45],
-      [11.78, 50.60], [11.92, 50.72], [12.00, 50.88], [12.02, 51.05],
-      [12.00, 51.22], [11.98, 51.38], [12.02, 51.52], [12.06, 51.62],
+      [10.5, 53.0], [13.5, 53.0], [13.5, 50.2], [10.5, 50.2], [10.5, 53.0],
     ]],
   },
 };
@@ -60,7 +52,8 @@ const LAYER_TILES: Record<string, { url: string; options: L.TileLayerOptions }> 
 };
 
 export default function MapView(props: MapProps) {
-  const { route, routeB, showRoute, isFetching, highlightDistance, activeLayers, onMapFlyTo, onBboxChange } = props;
+  const { route, routeB, showRoute, isFetching, highlightDistance, activeLayers, supermarketPois,
+    onMapFlyTo, onBboxChange, onPoiRightClick, onPoiClick } = props;
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<L.Map | null>(null);
   const routeLineRef = useRef<L.Polyline | null>(null);
@@ -71,6 +64,7 @@ export default function MapView(props: MapProps) {
   const trackLinesRef = useRef<Record<string, L.Polyline>>({});
   const routeCoordsRef = useRef<Array<[number, number]>>([]);
   const layerTilesRef = useRef<Record<string, L.TileLayer>>({});
+  const supermarketMarkersRef = useRef<L.Marker[]>([]);
 
   const { waypoints, addWaypoint, moveWaypoint, removeWaypoint, blockedSegment, setBlockedSegment, importedTracks } = useWaypointStore();
   const { onMapFitBounds } = props;
@@ -92,8 +86,19 @@ export default function MapView(props: MapProps) {
       attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
     }).addTo(map);
 
+    // Left click = add waypoint for routing
     map.on('click', (e: L.LeafletMouseEvent) => {
+      // Don't add waypoint if clicking a supermarket marker
+      const target = (e.originalEvent as MouseEvent).target as HTMLElement;
+      if (target && (target.closest('.supermarket-marker') || target.closest('.wp-div-icon'))) {
+        return;
+      }
       addWaypoint(e.latlng.lat, e.latlng.lng);
+    });
+
+    // Right click on map: check for nearby supermarket (for future use)
+    map.on('contextmenu', () => {
+      // No-op: supermarket right-clicks are handled by the markers themselves
     });
 
     const reportBbox = () => {
@@ -119,7 +124,7 @@ export default function MapView(props: MapProps) {
       color: '#f97316', weight: 2, opacity: 0.6,
       fillColor: '#f97316', fillOpacity: 0.05, dashArray: '8,4',
     };
-    L.geoJSON(SACHSEN_BOUNDARY as any, { style: sachsenStyle, interactive: false } as any).addTo(map);
+    L.geoJSON(SAXONY_BOUNDARY as any, { style: sachsenStyle, interactive: false } as any).addTo(map);
 
     L.control.scale({ position: 'bottomright', metric: true, imperial: false, maxWidth: 120 }).addTo(map);
 
@@ -148,6 +153,91 @@ export default function MapView(props: MapProps) {
       }
     }
   }, [activeLayers]);
+
+  // ── Supermarket markers (right-click for Google details) ──
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+
+    // Clear old markers
+    supermarketMarkersRef.current.forEach(m => map.removeLayer(m));
+    supermarketMarkersRef.current = [];
+
+    if (!supermarketPois || supermarketPois.length === 0) return;
+
+    // Always create markers regardless of zoom level.
+    // Show/hide based on zoom (≥14 visible) via per-marker addTo/removeLayer.
+    for (const poi of supermarketPois) {
+      const icon = L.divIcon({
+        className: 'supermarket-marker',
+        html: `<div style="
+          width:28px;height:28px;background:#22c55e;border:2px solid white;
+          border-radius:6px;display:flex;align-items:center;justify-content:center;
+          font-size:16px;box-shadow:0 2px 6px rgba(0,0,0,0.5);
+          cursor:pointer;pointer-events:auto;"
+          title="${poi.name || 'Supermarkt'}">
+          🛒
+        </div>`,
+        iconSize: [28, 28],
+        iconAnchor: [14, 14],
+      });
+
+      const marker = L.marker([poi.lat, poi.lng], {
+        icon,
+        interactive: true,
+        zIndexOffset: 1000, // ensure above route line
+      });
+
+      // Hover label
+      marker.bindTooltip(poi.name || 'Supermarkt', {
+        direction: 'top',
+        offset: [0, -16],
+        className: 'supermarket-tooltip',
+        permanent: false,
+      });
+
+      // Right-click → Google detail popup
+      marker.on('contextmenu', (e: L.LeafletMouseEvent) => {
+        e.originalEvent.preventDefault();
+        e.originalEvent.stopPropagation();
+        onPoiRightClick?.(poi);
+      });
+
+      // Left-click opens detail popup
+      marker.on('click', (e: L.LeafletMouseEvent) => {
+        e.originalEvent.stopPropagation();
+        onPoiClick?.(poi);
+      });
+
+      // Add to map only if zoom ≥ 14
+      if (map.getZoom() >= 14) {
+        marker.addTo(map);
+      }
+
+      supermarketMarkersRef.current.push(marker);
+    }
+
+    // Listen for zoom changes to show/hide markers
+    const onZoom = () => {
+      const zoom = map.getZoom();
+      supermarketMarkersRef.current.forEach(m => {
+        if (zoom >= 14) {
+          if (!map.hasLayer(m)) m.addTo(map);
+        } else {
+          if (map.hasLayer(m)) map.removeLayer(m);
+        }
+      });
+    };
+    map.on('zoomend', onZoom);
+
+    return () => {
+      map.off('zoomend', onZoom);
+      supermarketMarkersRef.current.forEach(m => {
+        if (map.hasLayer(m)) map.removeLayer(m);
+      });
+      supermarketMarkersRef.current = [];
+    };
+  }, [supermarketPois, onPoiRightClick, onPoiClick]);
 
   // ── Waypoint markers ──────────────────────
   useEffect(() => {
@@ -248,13 +338,11 @@ export default function MapView(props: MapProps) {
     const map = mapRef.current;
     if (!map) return;
 
-    // Remove old track lines
     Object.values(trackLinesRef.current).forEach((l) => l.remove());
     trackLinesRef.current = {};
 
     if (!showTracks) return;
 
-    // Render tracks from store — thicker and more visible
     for (const [filename, geometry] of Object.entries(importedTracks)) {
       const coords = decodePolyline(geometry);
       const latlngs = coords.map(([lng, lat]) => [lat, lng] as [number, number]);

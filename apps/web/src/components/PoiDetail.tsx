@@ -6,6 +6,7 @@ interface Props {
   poi: Poi | null;
   onClose: () => void;
   onFlyTo?: (lng: number, lat: number) => void;
+  onGoogleMaps?: (poi: Poi) => void;
 }
 
 interface GooglePlaceData {
@@ -31,7 +32,7 @@ interface GooglePlaceData {
  * Shows OSM + Google Places information about a selected POI.
  * Fetches live Google details for supermarkets, cafes, restaurants.
  */
-export default function PoiDetail({ poi, onClose, onFlyTo }: Props) {
+export default function PoiDetail({ poi, onClose, onFlyTo, onGoogleMaps }: Props) {
   const [googlePlace, setGooglePlace] = useState<GooglePlaceData | null>(null);
   const [googleLoading, setGoogleLoading] = useState(false);
   const [googleError, setGoogleError] = useState(false);
@@ -256,6 +257,13 @@ export default function PoiDetail({ poi, onClose, onFlyTo }: Props) {
 
         {/* Actions */}
         <div className="mt-2 flex gap-2">
+          <button
+            onClick={() => onGoogleMaps?.(poi)}
+            className="flex-1 rounded bg-amber-600 px-2 py-1 text-xs text-white hover:bg-amber-700"
+          >
+            Google Maps Route
+          </button>
+
           <button
             onClick={() => onFlyTo?.(poi.lng, poi.lat)}
             className="flex-1 rounded bg-indigo-600 px-2 py-1 text-xs text-white hover:bg-indigo-700"
