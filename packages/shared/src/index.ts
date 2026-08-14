@@ -88,6 +88,9 @@ export interface CostingOverrides {
   disable_hierarchy_pruning?: boolean;
 }
 
+/** Numeric costing keys only (excludes the boolean disable_hierarchy_pruning toggle). */
+export type NumericCostingKey = Exclude<keyof CostingOverrides, 'disable_hierarchy_pruning'>;
+
 /** Hard exclusion flags the user can toggle */
 export interface ExclusionFlags {
   exclude_unpaved?: boolean;

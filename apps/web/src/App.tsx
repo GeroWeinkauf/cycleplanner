@@ -29,9 +29,11 @@ function AppInner() {
   const [showRoute, setShowRoute] = useState(true);
   const [selectedPoi, setSelectedPoi] = useState<Poi | null>(null);
   const [supermarketPois, setSupermarketPois] = useState<Poi[]>([]);
+  const [prefetchedPois, setPrefetchedPois] = useState<{ bounds: [number, number, number, number]; pois: Poi[] } | null>(null);
   const mapFlyToRef = useRef<((lng: number, lat: number) => void) | null>(null);
   const mapFitBoundsRef = useRef<((points: Array<{ lat: number; lng: number }>) => void) | null>(null);
   const [bbox, setBbox] = useState<string | null>(null);
+  const [scaleMeters, setScaleMeters] = useState<number | null>(null);
 
   const handleToggle = useCallback((layerId: string) => {
     setActiveLayers((prev) => {
@@ -46,6 +48,10 @@ function AppInner() {
     setBbox(newBbox);
   }, []);
 
+  const handleScaleChange = useCallback((meters: number) => {
+    setScaleMeters(meters);
+  }, []);
+
   const handlePoiClick = useCallback((poi: Poi) => {
     setSelectedPoi(poi);
   }, []);
@@ -58,21 +64,47 @@ function AppInner() {
     setSelectedPoi(null);
   }, []);
 
-  // Fetch supermarket POIs whenever the map bbox changes
+  // Prefetch supermarkets for a wider area once we get close (scale ≤ 2 km),
+  // so that zooming down to ≤ 500 m shows the icons instantly from cache.
   useEffect(() => {
-    if (!bbox) return;
+    if (!bbox || scaleMeters == null || scaleMeters > 2000) return;
+    const [south, west, north, east] = bbox.split(',').map(Number);
+    // Reuse the cache while the visible bbox is still inside the prefetched bounds
+    if (
+      prefetchedPois &&
+      prefetchedPois.bounds[0] <= south && prefetchedPois.bounds[1] <= west &&
+      prefetchedPois.bounds[2] >= north && prefetchedPois.bounds[3] >= east
+    ) {
+      return;
+    }
+    const buffer = 0.015; // ~1.6 km extra in each direction
+    const wideBounds: [number, number, number, number] = [south - buffer, west - buffer, north + buffer, east + buffer];
     const controller = new AbortController();
     fetch('/api/pois', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ bbox, categories: ['supermarket'], limit: 150 }),
+      body: JSON.stringify({ bbox: wideBounds.join(','), categories: ['supermarket'], limit: 500 }),
       signal: controller.signal,
     })
       .then((r) => r.json())
-      .then((data: { pois: Poi[] }) => setSupermarketPois(data.pois ?? []))
+      .then((data: { pois: Poi[] }) => setPrefetchedPois({ bounds: wideBounds, pois: data.pois ?? [] }))
       .catch(() => {});
     return () => controller.abort();
-  }, [bbox]);
+  }, [bbox, scaleMeters, prefetchedPois]);
+
+  // Show supermarkets only when the scale bar (Maßstab) shows ≤ 500 m — instantly from the prefetched cache
+  useEffect(() => {
+    if (!bbox || scaleMeters == null) return;
+    if (scaleMeters > 500) {
+      setSupermarketPois([]);
+      return;
+    }
+    const [south, west, north, east] = bbox.split(',').map(Number);
+    const visible = (prefetchedPois?.pois ?? []).filter(
+      (p) => p.lat >= south && p.lat <= north && p.lng >= west && p.lng <= east,
+    );
+    setSupermarketPois(visible);
+  }, [bbox, scaleMeters, prefetchedPois]);
 
   const { data: route, isFetching } = useRouteQuery();
   const { data: elevationData, isLoading: elevationLoading } = useElevationQuery(route?.geometry);
@@ -119,7 +151,9 @@ function AppInner() {
             onMapFlyTo={(fn) => { mapFlyToRef.current = fn; }}
             onMapFitBounds={(fn) => { mapFitBoundsRef.current = fn; }}
             onBboxChange={handleBboxChange}
+            onScaleChange={handleScaleChange}
             onPoiClick={handlePoiClick}
+            onPoiRightClick={handlePoiClick}
           />
           <div className="absolute top-2 right-2 z-[1000] flex gap-2">
             <GpxImportButton />

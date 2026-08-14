@@ -47,8 +47,8 @@ function setCache(key: string, data: Poi[]): void {
 // ── Overpass endpoints ──────────────────────
 
 const OVERPASS_ENDPOINTS = [
-  'https://maps.mail.ru/osm/tools/overpass/api/interpreter',
   'https://overpass-api.de/api/interpreter',
+  'https://maps.mail.ru/osm/tools/overpass/api/interpreter',
   'https://overpass.kumi.systems/api/interpreter',
 ];
 
@@ -78,7 +78,7 @@ function buildOverpassQuery(
   });
 
   const query =
-    '[out:json][timeout:15];(' +
+    '[out:json][timeout:8];(' +
     tagFilters.join('\n') +
     ');out body ' + limit + ';';
 

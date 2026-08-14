@@ -1151,7 +1151,7 @@ export function buildApp() {
           name: req.body.name,
           lat: req.body.lat,
           lng: req.body.lng,
-          category: req.body.category || 'supermarket',
+          category: (req.body.category || 'supermarket') as PoiCategory,
           tags: {} as Record<string, string>,
           source: 'overpass' as const,
         };

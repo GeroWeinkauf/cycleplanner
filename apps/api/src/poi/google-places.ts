@@ -14,10 +14,34 @@ import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { Poi } from '@cycleplanner/shared';
 
+const __dirname = dirname(fileURLToPath(import.meta.url));
+
+/**
+ * Find the project root (the directory that contains .env / pnpm-workspace.yaml).
+ * tsx runs with cwd = apps/api, so process.cwd() is NOT the project root in dev.
+ */
+function findProjectRoot(): string {
+  const starts = [process.cwd(), __dirname];
+  for (const start of starts) {
+    let dir = resolve(start);
+    for (let i = 0; i < 8; i++) {
+      if (existsSync(resolve(dir, '.env')) || existsSync(resolve(dir, 'pnpm-workspace.yaml'))) {
+        return dir;
+      }
+      const parent = dirname(dir);
+      if (parent === dir) break;
+      dir = parent;
+    }
+  }
+  return process.cwd();
+}
+
+const PROJECT_ROOT = findProjectRoot();
+
 // Load .env manually since tsx doesn't auto-load it
 function loadEnvFile(): void {
   try {
-    const envPath = resolve(process.cwd(), '.env');
+    const envPath = resolve(PROJECT_ROOT, '.env');
     if (existsSync(envPath)) {
       const lines = readFileSync(envPath, 'utf-8').split('\n');
       for (const line of lines) {
@@ -36,13 +60,16 @@ function loadEnvFile(): void {
 }
 loadEnvFile();
 
-const KEY_FILE = resolve(process.cwd(), process.env.GOOGLE_API_KEY_FILE || 'auth/google-api-key.txt');
-const USAGE_FILE = process.env.GOOGLE_USAGE_FILE || resolve(process.cwd(), 'data/usage/google-places-usage.json');
+const KEY_FILE = resolve(PROJECT_ROOT, process.env.GOOGLE_API_KEY_FILE || 'auth/google-api-key.txt');
+const USAGE_FILE = process.env.GOOGLE_USAGE_FILE || resolve(PROJECT_ROOT, 'data/usage/google-places-usage.json');
 const MONTHLY_LIMIT = 20000;
 
 // ── API Key ─────────────────────────────────
 
 function loadApiKey(): string {
+  // Prefer a directly-set env var, then fall back to the key file.
+  const direct = process.env.GOOGLE_MAPS_API_KEY?.trim();
+  if (direct) return direct;
   try {
     if (existsSync(KEY_FILE)) {
       return readFileSync(KEY_FILE, 'utf-8').trim();

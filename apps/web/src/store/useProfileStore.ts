@@ -4,6 +4,7 @@ import type {
   ProfileConfig,
   CostingOverrides,
   ExclusionFlags,
+  NumericCostingKey,
 } from '@cycleplanner/shared';
 
 // ── Default profiles (loaded from config/profiles.json at build time,
@@ -174,7 +175,8 @@ interface ProfileState {
 
   // Actions
   setProfile: (profile: ProfileId) => void;
-  setOverride: (key: keyof CostingOverrides, value: number | undefined) => void;
+  setOverride: (key: NumericCostingKey, value: number | undefined) => void;
+  setDisableHierarchyPruning: (value: boolean | undefined) => void;
   setExclusion: (key: keyof ExclusionFlags, value: boolean) => void;
   resetOverrides: () => void;
 
@@ -231,6 +233,20 @@ export const useProfileStore = create<ProfileState>((set, get) => ({
     );
 
     set({ overrides: newOverrides, contradictions });
+  },
+
+  setDisableHierarchyPruning: (value) => {
+    const state = get();
+    const newOverrides: CostingOverrides = { ...state.overrides };
+    if (value === undefined) {
+      delete newOverrides.disable_hierarchy_pruning;
+    } else {
+      newOverrides.disable_hierarchy_pruning = value;
+    }
+    set({
+      overrides: newOverrides,
+      contradictions: detectContradictions(state.profile, state.exclusionFlags, newOverrides),
+    });
   },
 
   setExclusion: (key, value) => {

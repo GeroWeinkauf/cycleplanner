@@ -1,12 +1,12 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useProfileStore, DEFAULT_PROFILES } from '../store/useProfileStore';
-import type { ProfileId, CostingOverrides, TuningPreset } from '@cycleplanner/shared';
+import type { ProfileId, CostingOverrides, NumericCostingKey, TuningPreset } from '@cycleplanner/shared';
 
 const API_BASE = '/api';
 
 // All tuning sliders with their specs
 interface SliderSpec {
-  key: keyof CostingOverrides;
+  key: NumericCostingKey;
   label: string;
   min: number;
   max: number;
@@ -39,7 +39,7 @@ interface Props {
 }
 
 export default function TuningPanel({ isOpen, onClose }: Props) {
-  const { profile, overrides, setProfile, setOverride, resetOverrides, exclusionFlags, setExclusion } =
+  const { profile, overrides, setProfile, setOverride, setDisableHierarchyPruning, resetOverrides, exclusionFlags, setExclusion } =
     useProfileStore();
 
   // ── Comparison mode ────────────────────────
@@ -66,7 +66,7 @@ export default function TuningPanel({ isOpen, onClose }: Props) {
 
   // ── Slider helpers ─────────────────────────
   const getSliderValue = useCallback(
-    (key: keyof CostingOverrides): number => {
+    (key: NumericCostingKey): number => {
       // In compare mode, show the active side's values
       if (compareMode && activeSide === 'B' && sideB.overrides[key] !== undefined) {
         return sideB.overrides[key] as number;
@@ -82,7 +82,7 @@ export default function TuningPanel({ isOpen, onClose }: Props) {
 
       if (key === 'street_avoidance') return baseImpl.street_avoidance / 100;
       if (key === 'avoid_bad_surfaces') return baseImpl.surface_strictness / 100;
-      return (baseCosting as Record<string, number>)[key] ?? 0;
+      return baseCosting[key] ?? 0;
     },
     [overrides, profile, compareMode, activeSide, sideB],
   );
@@ -100,13 +100,17 @@ export default function TuningPanel({ isOpen, onClose }: Props) {
     (preset: TuningPreset) => {
       setProfile(preset.profile);
       for (const [k, v] of Object.entries(preset.overrides)) {
-        setOverride(k as keyof CostingOverrides, v as number | undefined);
+        if (k === 'disable_hierarchy_pruning') {
+          setDisableHierarchyPruning(v as boolean | undefined);
+        } else {
+          setOverride(k as NumericCostingKey, v as number | undefined);
+        }
       }
       for (const [k, v] of Object.entries(preset.exclusionFlags)) {
         setExclusion(k as keyof typeof exclusionFlags, v as boolean);
       }
     },
-    [setProfile, setOverride, setExclusion],
+    [setProfile, setOverride, setDisableHierarchyPruning, setExclusion],
   );
 
   const handleSavePreset = useCallback(async () => {
@@ -300,7 +304,7 @@ export default function TuningPanel({ isOpen, onClose }: Props) {
             <input
               type="checkbox"
               checked={!overrides.disable_hierarchy_pruning}
-              onChange={(e) => setOverride('disable_hierarchy_pruning', !e.target.checked ? true : undefined)}
+              onChange={(e) => setDisableHierarchyPruning(!e.target.checked ? true : undefined)}
               className="h-3.5 w-3.5 accent-blue-600"
             />
             <span className="text-xs text-gray-400">

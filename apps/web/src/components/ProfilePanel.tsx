@@ -1,10 +1,10 @@
 import { useState } from 'react';
 import { useProfileStore, DEFAULT_PROFILES } from '../store/useProfileStore';
-import type { ProfileId, CostingOverrides, ExclusionFlags } from '@cycleplanner/shared';
+import type { ProfileId, ExclusionFlags, NumericCostingKey } from '@cycleplanner/shared';
 
 const PROFILE_IDS: ProfileId[] = ['Tourenrad', 'Rennrad', 'Gravel', 'MTB'];
 
-const SLIDER_SPECS: { key: keyof CostingOverrides; label: string }[] = [
+const SLIDER_SPECS: { key: NumericCostingKey; label: string }[] = [
   { key: 'use_hills', label: 'Steigungsbereitschaft' },
   { key: 'street_avoidance', label: 'Straßenmeidung' },
   { key: 'avoid_bad_surfaces', label: 'Oberflächenstrenge' },
@@ -28,14 +28,14 @@ export default function ProfilePanel() {
   const impl = DEFAULT_PROFILES[profile].implications;
   const desc = DEFAULT_PROFILES[profile].description;
 
-  const getSliderValue = (key: keyof CostingOverrides): number => {
+  const getSliderValue = (key: NumericCostingKey): number => {
     if (overrides[key] !== undefined) return overrides[key];
     if (key === 'use_hills') return DEFAULT_PROFILES[profile].costing.use_hills;
     if (key === 'street_avoidance') return impl.street_avoidance / 100;
     if (key === 'avoid_bad_surfaces') return impl.surface_strictness / 100;
     return 0;
   };
-  const isOverridden = (key: keyof CostingOverrides): boolean => overrides[key] !== undefined;
+  const isOverridden = (key: NumericCostingKey): boolean => overrides[key] !== undefined;
 
   return (
     <div className="p-3 text-sm">

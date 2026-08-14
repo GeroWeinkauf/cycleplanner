@@ -93,7 +93,7 @@ export default function PoiDetail({ poi, onClose, onFlyTo, onGoogleMaps }: Props
   const priceIcons = ['', '💰', '💰💰', '💰💰💰', '💰💰💰💰'];
 
   return (
-    <div className="fixed bottom-16 left-1/2 z-30 w-80 -translate-x-1/2 rounded-lg border border-gray-200 bg-white shadow-xl max-h-[60vh] overflow-y-auto">
+    <div className="absolute left-1/2 top-1/2 z-[1100] w-80 -translate-x-1/2 -translate-y-1/2 rounded-lg border border-gray-200 bg-white shadow-xl max-h-[80%] overflow-y-auto">
       {/* Header */}
       <div className="flex items-center justify-between rounded-t-lg bg-indigo-50 px-3 py-2 sticky top-0 z-10">
         <div className="flex items-center gap-2">

@@ -224,11 +224,11 @@ export async function analyzeRoute(
   if (totalLength > 0) {
     for (const [key, len] of Object.entries(surfaceCounts)) {
       const pct = Math.round((len / totalLength) * 100 * 10) / 10;
-      (surfaceDist as Record<string, number>)[key] = pct;
+      (surfaceDist as unknown as Record<string, number>)[key] = pct;
     }
     for (const [key, len] of Object.entries(roadClassCounts)) {
       const pct = Math.round((len / totalLength) * 100 * 10) / 10;
-      (roadClassDist as Record<string, number>)[key] = pct;
+      (roadClassDist as unknown as Record<string, number>)[key] = pct;
     }
   }
 

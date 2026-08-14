@@ -6,7 +6,7 @@ import { decodePolyline, nearestPointOnLine } from '../lib/polyline';
 import type { RouteResponse, Poi } from '@cycleplanner/shared';
 
 // Fix Leaflet default icon paths
-delete (L.Icon.Default.prototype as Record<string, unknown>)._getIconUrl;
+delete (L.Icon.Default.prototype as unknown as Record<string, unknown>)._getIconUrl;
 L.Icon.Default.mergeOptions({
   iconRetinaUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png',
   iconUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png',
@@ -24,6 +24,7 @@ interface MapProps {
   onMapFlyTo?: (fn: (lng: number, lat: number) => void) => void;
   onMapFitBounds?: (fn: (points: Array<{ lat: number; lng: number }>) => void) => void;
   onBboxChange?: (bbox: string) => void;
+  onScaleChange?: (scaleMeters: number) => void;
   onPoiRightClick?: (poi: Poi) => void;
   onPoiClick?: (poi: Poi) => void;
 }
@@ -53,7 +54,7 @@ const LAYER_TILES: Record<string, { url: string; options: L.TileLayerOptions }> 
 
 export default function MapView(props: MapProps) {
   const { route, routeB, showRoute, isFetching, highlightDistance, activeLayers, supermarketPois,
-    onMapFlyTo, onBboxChange, onPoiRightClick, onPoiClick } = props;
+    onMapFlyTo, onBboxChange, onScaleChange, onPoiRightClick, onPoiClick } = props;
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<L.Map | null>(null);
   const routeLineRef = useRef<L.Polyline | null>(null);
@@ -104,8 +105,18 @@ export default function MapView(props: MapProps) {
     const reportBbox = () => {
       const b = map.getBounds();
       onBboxChange?.([b.getSouth().toFixed(4), b.getWest().toFixed(4), b.getNorth().toFixed(4), b.getEast().toFixed(4)].join(','));
+      // Report the scale-bar value (Maßstab, bottom right) so the parent can gate POI loading on it.
+      // Mirrors Leaflet's L.control.scale with maxWidth 120.
+      const p1 = map.containerPointToLatLng([0, 0]);
+      const p2 = map.containerPointToLatLng([120, 0]);
+      const maxMeters = p1.distanceTo(p2);
+      const pow10 = Math.pow(10, String(Math.floor(maxMeters)).length - 1);
+      let d = maxMeters / pow10;
+      d = d >= 10 ? 10 : d >= 5 ? 5 : d >= 3 ? 3 : d >= 2 ? 2 : 1;
+      onScaleChange?.(pow10 * d);
     };
     map.on('moveend', reportBbox);
+    map.on('zoomend', reportBbox);
     reportBbox();
 
     onMapFlyTo?.((lng: number, lat: number) => {
@@ -165,8 +176,7 @@ export default function MapView(props: MapProps) {
 
     if (!supermarketPois || supermarketPois.length === 0) return;
 
-    // Always create markers regardless of zoom level.
-    // Show/hide based on zoom (≥14 visible) via per-marker addTo/removeLayer.
+    // Markers are fetched by the parent only when zoomed in (~1 km), so always show them.
     for (const poi of supermarketPois) {
       const icon = L.divIcon({
         className: 'supermarket-marker',
@@ -209,29 +219,12 @@ export default function MapView(props: MapProps) {
         onPoiClick?.(poi);
       });
 
-      // Add to map only if zoom ≥ 14
-      if (map.getZoom() >= 14) {
-        marker.addTo(map);
-      }
+      marker.addTo(map);
 
       supermarketMarkersRef.current.push(marker);
     }
 
-    // Listen for zoom changes to show/hide markers
-    const onZoom = () => {
-      const zoom = map.getZoom();
-      supermarketMarkersRef.current.forEach(m => {
-        if (zoom >= 14) {
-          if (!map.hasLayer(m)) m.addTo(map);
-        } else {
-          if (map.hasLayer(m)) map.removeLayer(m);
-        }
-      });
-    };
-    map.on('zoomend', onZoom);
-
     return () => {
-      map.off('zoomend', onZoom);
       supermarketMarkersRef.current.forEach(m => {
         if (map.hasLayer(m)) map.removeLayer(m);
       });

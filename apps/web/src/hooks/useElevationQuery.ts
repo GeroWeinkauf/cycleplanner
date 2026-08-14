@@ -13,6 +13,7 @@ export function useElevationQuery(polyline: string | undefined) {
   return useQuery<ElevationProfile>({
     queryKey: ['elevation', polyline],
     queryFn: async () => {
+      if (!polyline) throw new Error('No polyline provided');
       const res = await fetch(API_BASE + '/elevation/profile', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

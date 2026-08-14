@@ -20,7 +20,7 @@ export interface Database {
   /** Execute raw SQL without returning rows */
   exec(sql: string): void;
   /** Begin a transaction */
-  transaction<T>(fn: () => T): T;
+  transaction<T>(fn: () => T): () => T;
   /** Close the database connection */
   close(): void;
 }
@@ -56,9 +56,8 @@ function loadSqlite(): Database | null {
       exec(sql: string): void {
         sqlite.exec(sql);
       },
-      transaction<T>(fn: () => T): T {
-        const tx = sqlite.transaction(fn);
-        return tx();
+      transaction<T>(fn: () => T): () => T {
+        return sqlite.transaction(fn) as () => T;
       },
       close(): void {
         sqlite.close();
@@ -272,8 +271,8 @@ function loadJsonDb(): Database {
         }
       }
     },
-    transaction<T>(fn: () => T): T {
-      return fn();
+    transaction<T>(fn: () => T): () => T {
+      return fn;
     },
     close(): void {
       // no-op

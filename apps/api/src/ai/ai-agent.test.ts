@@ -50,7 +50,7 @@ describe('AI Agent output parsing', () => {
   it('parses JSON without markdown fences', () => {
     const content = '{"waypoints":[{"lat":52.0,"lng":13.0,"label":"Berlin"}],"summary":"City tour"}';
     const result = parseFinalOutput(content);
-    expect(result).notNull();
+    expect(result).not.toBeNull();
     expect(result!.waypoints).toHaveLength(1);
   });
 
