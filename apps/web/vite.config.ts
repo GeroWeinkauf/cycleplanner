@@ -11,12 +11,7 @@ export default defineConfig({
       '/api': 'http://127.0.0.1:3000',
     },
   },
-  // MapLibre GL loads its Web Worker via a relative URL — exclude it from
-  // Vite's dep optimizer so the worker file resolves from node_modules.
-  optimizeDeps: {
-    exclude: ['maplibre-gl'],
-  },
-  worker: {
-    format: 'es',
-  },
+  // MapLibre GL v3 ships a UMD build — let Vite pre-bundle it (esbuild turns
+  // it into proper ESM with a default export). v3 creates its Web Worker via
+  // a blob, so no optimizeDeps.exclude is needed (unlike v6).
 });
