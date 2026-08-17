@@ -132,6 +132,20 @@ function addRasterSource(map: MlMap, id: string, cfg: RasterTileConfig) {
   });
 }
 
+/**
+ * MapLibre throws "Style is not done loading" for any style-dependent
+ * call (addSource/addLayer/getLayer/...) before the style has loaded.
+ * This helper runs the callback immediately when loaded, otherwise
+ * defers it to the map's `load` event.
+ */
+function whenStyleReady(map: MlMap, fn: () => void): void {
+  if (map.isStyleLoaded()) {
+    fn();
+  } else {
+    map.once('load', fn);
+  }
+}
+
 /** Marker style per POI category (icon comes from POI_CATEGORIES metadata) */
 const POI_MARKER_STYLES: Record<string, { bg: string; radius?: string; title: string }> = {
   supermarket: { bg: '#22c55e', title: 'Supermarkt' },
@@ -185,13 +199,15 @@ export default function MapView(props: MapProps) {
     map.addControl(new NavigationControl(), 'top-left');
     map.addControl(new ScaleControl({ maxWidth: 120 }), 'bottom-right');
 
-    // Saxony boundary outline
-    map.addSource('saxony', { type: 'geojson', data: SAXONY_BOUNDARY });
-    map.addLayer({
-      id: 'saxony-boundary',
-      type: 'line',
-      source: 'saxony',
-      paint: { 'line-color': '#f97316', 'line-width': 2, 'line-opacity': 0.6, 'line-dasharray': [2, 1] },
+    // Saxony boundary outline (style must be loaded first)
+    whenStyleReady(map, () => {
+      map.addSource('saxony', { type: 'geojson', data: SAXONY_BOUNDARY });
+      map.addLayer({
+        id: 'saxony-boundary',
+        type: 'line',
+        source: 'saxony',
+        paint: { 'line-color': '#f97316', 'line-width': 2, 'line-opacity': 0.6, 'line-dasharray': [2, 1] },
+      });
     });
 
     // Left click = add waypoint for routing
@@ -259,16 +275,18 @@ export default function MapView(props: MapProps) {
     const map = mapRef.current;
     if (!map) return;
     const bm = getBasemap(basemapId ?? DEFAULT_BASEMAP_ID);
-    if (map.getSource('basemap')) map.removeSource('basemap');
-    map.addSource('basemap', {
-      type: 'raster',
-      tiles: expandTileUrls(bm.url, bm.subdomains),
-      tileSize: bm.tileSize ?? 256,
-      maxzoom: bm.maxZoom ?? 19,
+    whenStyleReady(map, () => {
+      if (map.getSource('basemap')) map.removeSource('basemap');
+      map.addSource('basemap', {
+        type: 'raster',
+        tiles: expandTileUrls(bm.url, bm.subdomains),
+        tileSize: bm.tileSize ?? 256,
+        maxzoom: bm.maxZoom ?? 19,
+      });
+      if (!map.getLayer('basemap')) {
+        map.addLayer({ id: 'basemap', type: 'raster', source: 'basemap' });
+      }
     });
-    if (!map.getLayer('basemap')) {
-      map.addLayer({ id: 'basemap', type: 'raster', source: 'basemap' });
-    }
   }, [basemapId]);
 
   // ── Raster overlay toggling (driven by the layer registry) ──
@@ -276,32 +294,34 @@ export default function MapView(props: MapProps) {
     const map = mapRef.current;
     if (!map) return;
 
-    for (const layer of LAYERS) {
-      const cfg = layer.raster;
-      if (!cfg || cfg.kind === 'rainviewer') continue; // radar handled separately
-      const id = 'overlay-' + layer.id;
-      const shouldShow = activeLayers?.has(layer.id);
+    whenStyleReady(map, () => {
+      for (const layer of LAYERS) {
+        const cfg = layer.raster;
+        if (!cfg || cfg.kind === 'rainviewer') continue; // radar handled separately
+        const id = 'overlay-' + layer.id;
+        const shouldShow = activeLayers?.has(layer.id);
 
-      if (shouldShow && !map.getSource(id)) {
-        addRasterSource(map, id, cfg);
+        if (shouldShow && !map.getSource(id)) {
+          addRasterSource(map, id, cfg);
+        }
+        if (shouldShow && !map.getLayer(id)) {
+          map.addLayer({
+            id,
+            type: 'raster',
+            source: id,
+            minzoom: cfg.minZoom ?? layer.minZoom,
+            maxzoom: cfg.maxZoom,
+            paint: {
+              'raster-opacity': cfg.opacity ?? 1,
+              'raster-fade-duration': 300,
+            },
+          }, firstVectorLayerId(map));
+        } else if (!shouldShow) {
+          if (map.getLayer(id)) map.removeLayer(id);
+          if (map.getSource(id)) map.removeSource(id);
+        }
       }
-      if (shouldShow && !map.getLayer(id)) {
-        map.addLayer({
-          id,
-          type: 'raster',
-          source: id,
-          minzoom: cfg.minZoom ?? layer.minZoom,
-          maxzoom: cfg.maxZoom,
-          paint: {
-            'raster-opacity': cfg.opacity ?? 1,
-            'raster-fade-duration': 300,
-          },
-        }, firstVectorLayerId(map));
-      } else if (!shouldShow) {
-        if (map.getLayer(id)) map.removeLayer(id);
-        if (map.getSource(id)) map.removeSource(id);
-      }
-    }
+    });
   }, [activeLayers]);
 
   // ── 3D terrain (raster-dem + setTerrain) ──
@@ -313,7 +333,7 @@ export default function MapView(props: MapProps) {
     if (!cfg) return;
     const active = activeLayers?.has('terrain');
 
-    const apply = () => {
+    whenStyleReady(map, () => {
       if (active) {
         if (!map.getSource('terrain-dem')) {
           map.addSource('terrain-dem', {
@@ -330,9 +350,7 @@ export default function MapView(props: MapProps) {
         map.setTerrain(null);
         if (map.getSource('terrain-dem')) map.removeSource('terrain-dem');
       }
-    };
-    if (map.isStyleLoaded()) apply();
-    else map.once('load', apply);
+    });
   }, [activeLayers]);
 
   // ── Rain radar (RainViewer) ─────────────────
@@ -353,8 +371,10 @@ export default function MapView(props: MapProps) {
 
     const cleanup = () => {
       if (timer) clearInterval(timer);
-      if (map.getLayer(id)) map.removeLayer(id);
-      if (map.getSource(id)) map.removeSource(id);
+      whenStyleReady(map, () => {
+        if (map.getLayer(id)) map.removeLayer(id);
+        if (map.getSource(id)) map.removeSource(id);
+      });
     };
 
     const load = () => {
@@ -377,24 +397,26 @@ export default function MapView(props: MapProps) {
           const frame = pickRadarFrame(frames, targetMs);
           if (!frame) return;
           const url = radarTileUrl(host, frame.path);
-          if (map.getSource(id)) map.removeSource(id);
-          map.addSource(id, {
-            type: 'raster',
-            tiles: [url],
-            tileSize: 256,
-            minzoom: cfg.minZoom,
-            maxzoom: cfg.maxZoom,
-          });
-          if (!map.getLayer(id)) {
-            map.addLayer({
-              id,
+          whenStyleReady(map, () => {
+            if (map.getSource(id)) map.removeSource(id);
+            map.addSource(id, {
               type: 'raster',
-              source: id,
+              tiles: [url],
+              tileSize: 256,
               minzoom: cfg.minZoom,
               maxzoom: cfg.maxZoom,
-              paint: { 'raster-opacity': cfg.opacity ?? 0.6, 'raster-fade-duration': 300 },
-            }, firstVectorLayerId(map));
-          }
+            });
+            if (!map.getLayer(id)) {
+              map.addLayer({
+                id,
+                type: 'raster',
+                source: id,
+                minzoom: cfg.minZoom,
+                maxzoom: cfg.maxZoom,
+                paint: { 'raster-opacity': cfg.opacity ?? 0.6, 'raster-fade-duration': 300 },
+              }, firstVectorLayerId(map));
+            }
+          });
         })
         .catch(() => { /* radar unavailable — keep silently inactive */ });
     };
@@ -417,61 +439,63 @@ export default function MapView(props: MapProps) {
     if (!map) return;
     const controllers: AbortController[] = [];
 
-    for (const layer of LAYERS) {
-      const cfg = layer.geojson;
-      if (!cfg) continue;
-      const srcId = layer.id + '-geojson';
-      const lyrId = layer.id + '-lines';
-      const active = activeLayers?.has(layer.id);
+    whenStyleReady(map, () => {
+      for (const layer of LAYERS) {
+        const cfg = layer.geojson;
+        if (!cfg) continue;
+        const srcId = layer.id + '-geojson';
+        const lyrId = layer.id + '-lines';
+        const active = activeLayers?.has(layer.id);
 
-      if (!active) {
-        if (map.getLayer(lyrId)) map.removeLayer(lyrId);
-        if (map.getSource(srcId)) map.removeSource(srcId);
-        continue;
-      }
-
-      const addLayerIfMissing = () => {
-        if (!map.getLayer(lyrId) && map.getSource(srcId)) {
-          map.addLayer({
-            id: lyrId,
-            type: 'line',
-            source: srcId,
-            minzoom: cfg.minZoom ?? layer.minZoom,
-            layout: { 'line-cap': 'round', 'line-join': 'round' },
-            paint: {
-              'line-color': cfg.lineColor ?? '#0891b2',
-              'line-width': cfg.lineWidth ?? 2.5,
-              'line-opacity': cfg.lineOpacity ?? 0.85,
-            },
-          });
+        if (!active) {
+          if (map.getLayer(lyrId)) map.removeLayer(lyrId);
+          if (map.getSource(srcId)) map.removeSource(srcId);
+          continue;
         }
-      };
 
-      if (map.getSource(srcId)) {
-        addLayerIfMissing();
-        continue;
-      }
-
-      const cached = geoJsonCacheRef.current[layer.id];
-      if (cached) {
-        map.addSource(srcId, { type: 'geojson', data: cached });
-        addLayerIfMissing();
-        continue;
-      }
-
-      const ctrl = new AbortController();
-      controllers.push(ctrl);
-      fetch(cfg.url, { signal: ctrl.signal })
-        .then((r) => r.json())
-        .then((fc: FeatureCollection) => {
-          geoJsonCacheRef.current[layer.id] = fc;
-          if (activeLayers?.has(layer.id) && !map.getSource(srcId)) {
-            map.addSource(srcId, { type: 'geojson', data: fc });
-            addLayerIfMissing();
+        const addLayerIfMissing = () => {
+          if (!map.getLayer(lyrId) && map.getSource(srcId)) {
+            map.addLayer({
+              id: lyrId,
+              type: 'line',
+              source: srcId,
+              minzoom: cfg.minZoom ?? layer.minZoom,
+              layout: { 'line-cap': 'round', 'line-join': 'round' },
+              paint: {
+                'line-color': cfg.lineColor ?? '#0891b2',
+                'line-width': cfg.lineWidth ?? 2.5,
+                'line-opacity': cfg.lineOpacity ?? 0.85,
+              },
+            });
           }
-        })
-        .catch(() => { /* network data missing — ignore */ });
-    }
+        };
+
+        if (map.getSource(srcId)) {
+          addLayerIfMissing();
+          continue;
+        }
+
+        const cached = geoJsonCacheRef.current[layer.id];
+        if (cached) {
+          map.addSource(srcId, { type: 'geojson', data: cached });
+          addLayerIfMissing();
+          continue;
+        }
+
+        const ctrl = new AbortController();
+        controllers.push(ctrl);
+        fetch(cfg.url, { signal: ctrl.signal })
+          .then((r) => r.json())
+          .then((fc: FeatureCollection) => {
+            geoJsonCacheRef.current[layer.id] = fc;
+            if (activeLayers?.has(layer.id) && !map.getSource(srcId)) {
+              map.addSource(srcId, { type: 'geojson', data: fc });
+              addLayerIfMissing();
+            }
+          })
+          .catch(() => { /* network data missing — ignore */ });
+      }
+    });
 
     return () => controllers.forEach((c) => c.abort());
   }, [activeLayers]);
@@ -585,8 +609,10 @@ export default function MapView(props: MapProps) {
     const lyrId = 'route-line';
 
     if (!route?.geometry || !showRoute) {
-      if (map.getLayer(lyrId)) map.removeLayer(lyrId);
-      if (map.getSource(srcId)) map.removeSource(srcId);
+      whenStyleReady(map, () => {
+        if (map.getLayer(lyrId)) map.removeLayer(lyrId);
+        if (map.getSource(srcId)) map.removeSource(srcId);
+      });
       routeCoordsRef.current = [];
       return;
     }
@@ -595,20 +621,21 @@ export default function MapView(props: MapProps) {
     routeCoordsRef.current = coords;
     const fc = lineFeatureCollection(coords);
 
-    if (map.getSource(srcId)) {
-      (map.getSource(srcId) as GeoJSONSource).setData(fc);
-    } else {
-      map.addSource(srcId, { type: 'geojson', data: fc });
-      map.addLayer({
-        id: lyrId,
-        type: 'line',
-        source: srcId,
-        layout: { 'line-cap': 'round', 'line-join': 'round' },
-        paint: { 'line-color': '#dc2626', 'line-width': 4, 'line-opacity': 0.85 },
-      });
-    }
-
-    map.fitBounds(boundsOf(coords), { padding: 40, maxZoom: 15 });
+    whenStyleReady(map, () => {
+      if (map.getSource(srcId)) {
+        (map.getSource(srcId) as GeoJSONSource).setData(fc);
+      } else {
+        map.addSource(srcId, { type: 'geojson', data: fc });
+        map.addLayer({
+          id: lyrId,
+          type: 'line',
+          source: srcId,
+          layout: { 'line-cap': 'round', 'line-join': 'round' },
+          paint: { 'line-color': '#dc2626', 'line-width': 4, 'line-opacity': 0.85 },
+        });
+      }
+      map.fitBounds(boundsOf(coords), { padding: 40, maxZoom: 15 });
+    });
   }, [route, showRoute]);
 
   // ── Wind overlay (colored underlay: green = tailwind, red = headwind) ──
@@ -620,8 +647,10 @@ export default function MapView(props: MapProps) {
     const lyrId = 'route-wind';
 
     if (!weatherSegments || weatherSegments.length === 0 || !route?.geometry) {
-      if (map.getLayer(lyrId)) map.removeLayer(lyrId);
-      if (map.getSource(srcId)) map.removeSource(srcId);
+      whenStyleReady(map, () => {
+        if (map.getLayer(lyrId)) map.removeLayer(lyrId);
+        if (map.getSource(srcId)) map.removeSource(srcId);
+      });
       return;
     }
 
@@ -640,22 +669,24 @@ export default function MapView(props: MapProps) {
     });
 
     const fc: FeatureCollection = { type: 'FeatureCollection', features };
-    if (map.getSource(srcId)) {
-      (map.getSource(srcId) as GeoJSONSource).setData(fc);
-    } else {
-      map.addSource(srcId, { type: 'geojson', data: fc });
-      map.addLayer({
-        id: lyrId,
-        type: 'line',
-        source: srcId,
-        layout: { 'line-cap': 'round', 'line-join': 'round' },
-        paint: {
-          'line-color': ['get', 'color'],
-          'line-width': 7,
-          'line-opacity': 0.45,
-        },
-      }, map.getLayer('route-line') ? 'route-line' : undefined);
-    }
+    whenStyleReady(map, () => {
+      if (map.getSource(srcId)) {
+        (map.getSource(srcId) as GeoJSONSource).setData(fc);
+      } else {
+        map.addSource(srcId, { type: 'geojson', data: fc });
+        map.addLayer({
+          id: lyrId,
+          type: 'line',
+          source: srcId,
+          layout: { 'line-cap': 'round', 'line-join': 'round' },
+          paint: {
+            'line-color': ['get', 'color'],
+            'line-width': 7,
+            'line-opacity': 0.45,
+          },
+        }, map.getLayer('route-line') ? 'route-line' : undefined);
+      }
+    });
   }, [weatherSegments, route]);
 
   // ── Imported GPX tracks ───────────────────
@@ -667,8 +698,10 @@ export default function MapView(props: MapProps) {
     const lyrId = 'tracks-lines';
 
     if (!showTracks || Object.keys(importedTracks).length === 0) {
-      if (map.getLayer(lyrId)) map.removeLayer(lyrId);
-      if (map.getSource(srcId)) map.removeSource(srcId);
+      whenStyleReady(map, () => {
+        if (map.getLayer(lyrId)) map.removeLayer(lyrId);
+        if (map.getSource(srcId)) map.removeSource(srcId);
+      });
       return;
     }
 
@@ -681,18 +714,20 @@ export default function MapView(props: MapProps) {
       })),
     };
 
-    if (map.getSource(srcId)) {
-      (map.getSource(srcId) as GeoJSONSource).setData(fc);
-    } else {
-      map.addSource(srcId, { type: 'geojson', data: fc });
-      map.addLayer({
-        id: lyrId,
-        type: 'line',
-        source: srcId,
-        layout: { 'line-cap': 'round', 'line-join': 'round' },
-        paint: { 'line-color': '#0891b2', 'line-width': 4, 'line-opacity': 0.75 },
-      });
-    }
+    whenStyleReady(map, () => {
+      if (map.getSource(srcId)) {
+        (map.getSource(srcId) as GeoJSONSource).setData(fc);
+      } else {
+        map.addSource(srcId, { type: 'geojson', data: fc });
+        map.addLayer({
+          id: lyrId,
+          type: 'line',
+          source: srcId,
+          layout: { 'line-cap': 'round', 'line-join': 'round' },
+          paint: { 'line-color': '#0891b2', 'line-width': 4, 'line-opacity': 0.75 },
+        });
+      }
+    });
   }, [importedTracks, showTracks]);
 
   // ── Comparison route B ────────────────────
@@ -704,24 +739,28 @@ export default function MapView(props: MapProps) {
     const lyrId = 'route-b';
 
     if (!routeB?.geometry) {
-      if (map.getLayer(lyrId)) map.removeLayer(lyrId);
-      if (map.getSource(srcId)) map.removeSource(srcId);
+      whenStyleReady(map, () => {
+        if (map.getLayer(lyrId)) map.removeLayer(lyrId);
+        if (map.getSource(srcId)) map.removeSource(srcId);
+      });
       return;
     }
 
     const fc = lineFeatureCollection(decodePolyline(routeB.geometry));
-    if (map.getSource(srcId)) {
-      (map.getSource(srcId) as GeoJSONSource).setData(fc);
-    } else {
-      map.addSource(srcId, { type: 'geojson', data: fc });
-      map.addLayer({
-        id: lyrId,
-        type: 'line',
-        source: srcId,
-        layout: { 'line-cap': 'round', 'line-join': 'round' },
-        paint: { 'line-color': '#7c3aed', 'line-width': 3, 'line-opacity': 0.6, 'line-dasharray': [2, 1] },
-      });
-    }
+    whenStyleReady(map, () => {
+      if (map.getSource(srcId)) {
+        (map.getSource(srcId) as GeoJSONSource).setData(fc);
+      } else {
+        map.addSource(srcId, { type: 'geojson', data: fc });
+        map.addLayer({
+          id: lyrId,
+          type: 'line',
+          source: srcId,
+          layout: { 'line-cap': 'round', 'line-join': 'round' },
+          paint: { 'line-color': '#7c3aed', 'line-width': 3, 'line-opacity': 0.6, 'line-dasharray': [2, 1] },
+        });
+      }
+    });
   }, [routeB]);
 
   // ── Blocked segment ───────────────────────
@@ -733,24 +772,28 @@ export default function MapView(props: MapProps) {
     const lyrId = 'blocked-line';
 
     if (!blockedSegment || blockedSegment.length < 2) {
-      if (map.getLayer(lyrId)) map.removeLayer(lyrId);
-      if (map.getSource(srcId)) map.removeSource(srcId);
+      whenStyleReady(map, () => {
+        if (map.getLayer(lyrId)) map.removeLayer(lyrId);
+        if (map.getSource(srcId)) map.removeSource(srcId);
+      });
       return;
     }
 
     const fc = lineFeatureCollection(blockedSegment);
-    if (map.getSource(srcId)) {
-      (map.getSource(srcId) as GeoJSONSource).setData(fc);
-    } else {
-      map.addSource(srcId, { type: 'geojson', data: fc });
-      map.addLayer({
-        id: lyrId,
-        type: 'line',
-        source: srcId,
-        layout: { 'line-cap': 'round', 'line-join': 'round' },
-        paint: { 'line-color': '#f59e0b', 'line-width': 6, 'line-opacity': 0.7, 'line-dasharray': [1.5, 0.75] },
-      });
-    }
+    whenStyleReady(map, () => {
+      if (map.getSource(srcId)) {
+        (map.getSource(srcId) as GeoJSONSource).setData(fc);
+      } else {
+        map.addSource(srcId, { type: 'geojson', data: fc });
+        map.addLayer({
+          id: lyrId,
+          type: 'line',
+          source: srcId,
+          layout: { 'line-cap': 'round', 'line-join': 'round' },
+          paint: { 'line-color': '#f59e0b', 'line-width': 6, 'line-opacity': 0.7, 'line-dasharray': [1.5, 0.75] },
+        });
+      }
+    });
   }, [blockedSegment]);
 
   // ── Elevation highlight marker ─────────────
@@ -762,8 +805,10 @@ export default function MapView(props: MapProps) {
     const lyrId = 'highlight-dot';
 
     if (highlightDistance == null || !route?.geometry || route.summary.distanceKm <= 0) {
-      if (map.getLayer(lyrId)) map.removeLayer(lyrId);
-      if (map.getSource(srcId)) map.removeSource(srcId);
+      whenStyleReady(map, () => {
+        if (map.getLayer(lyrId)) map.removeLayer(lyrId);
+        if (map.getSource(srcId)) map.removeSource(srcId);
+      });
       return;
     }
 
@@ -774,22 +819,24 @@ export default function MapView(props: MapProps) {
     const [lng, lat] = coords[idx];
     const fc = pointFeatureCollection(lng, lat);
 
-    if (map.getSource(srcId)) {
-      (map.getSource(srcId) as GeoJSONSource).setData(fc);
-    } else {
-      map.addSource(srcId, { type: 'geojson', data: fc });
-      map.addLayer({
-        id: lyrId,
-        type: 'circle',
-        source: srcId,
-        paint: {
-          'circle-radius': 9,
-          'circle-color': '#ef4444',
-          'circle-stroke-color': '#ffffff',
-          'circle-stroke-width': 2,
-        },
-      });
-    }
+    whenStyleReady(map, () => {
+      if (map.getSource(srcId)) {
+        (map.getSource(srcId) as GeoJSONSource).setData(fc);
+      } else {
+        map.addSource(srcId, { type: 'geojson', data: fc });
+        map.addLayer({
+          id: lyrId,
+          type: 'circle',
+          source: srcId,
+          paint: {
+            'circle-radius': 9,
+            'circle-color': '#ef4444',
+            'circle-stroke-color': '#ffffff',
+            'circle-stroke-width': 2,
+          },
+        });
+      }
+    });
   }, [highlightDistance, route]);
 
   return <div ref={containerRef} className="absolute inset-0" />;
