@@ -134,13 +134,20 @@ export default function MapLayerPanel({
                 <div className="text-[10px] font-semibold text-gray-400 px-1 mb-0.5">{groupLabel}</div>
                 {groupLayers.map(layer => {
                   const active = activeLayers.has(layer.id);
+                  // WebGL-only layers (3D terrain, rain radar) are unavailable
+                  // in the Leaflet compatibility mode
+                  const webglOnly = useLeaflet &&
+                    (layer.raster?.kind === 'terrain' || layer.raster?.kind === 'rainviewer');
                   return (
-                    <label key={layer.id} className="flex cursor-pointer items-start gap-2 rounded px-1 py-1 hover:bg-gray-50 text-[11px]">
-                      <input type="checkbox" checked={active} onChange={() => onToggleLayer(layer.id)} className="mt-0.5 h-3 w-3 shrink-0 accent-blue-600" />
+                    <label key={layer.id}
+                      className={'flex cursor-pointer items-start gap-2 rounded px-1 py-1 text-[11px] ' + (webglOnly ? 'opacity-50' : 'hover:bg-gray-50')}>
+                      <input type="checkbox" checked={active} disabled={webglOnly} onChange={() => onToggleLayer(layer.id)} className="mt-0.5 h-3 w-3 shrink-0 accent-blue-600" />
                       <span className="min-w-0">
                         <span className="block text-gray-700">{layer.label}</span>
                         {layer.legend && (
-                          <span className="block text-[9px] leading-tight text-gray-400">{layer.legend}</span>
+                          <span className="block text-[9px] leading-tight text-gray-400">
+                            {layer.legend}{webglOnly ? ' · nur 3D-Modus' : ''}
+                          </span>
                         )}
                       </span>
                     </label>

@@ -57,6 +57,27 @@ function toLatLngs(coords: Array<[number, number]>): Array<[number, number]> {
   return coords.map(([lng, lat]) => [lat, lng] as [number, number]);
 }
 
+/**
+ * Tile layer for WMS-style raster URLs that use the {bbox-epsg-3857}
+ * placeholder (e.g. the Esri Land Cover exportImage service). Leaflet only
+ * expands {z}/{x}/{y}/{s}, so the bbox is computed per tile here.
+ */
+const BboxTileLayer = L.TileLayer.extend({
+  getTileUrl(this: L.TileLayer & { _url: string }, coords: { z: number; x: number; y: number }): string {
+    const n = Math.pow(2, coords.z);
+    const R = 6378137;
+    const minLng = (coords.x / n) * 360 - 180;
+    const maxLng = ((coords.x + 1) / n) * 360 - 180;
+    const yMin = (180 / Math.PI) * Math.atan(Math.sinh(Math.PI * (1 - 2 * (coords.y + 1) / n)));
+    const yMax = (180 / Math.PI) * Math.atan(Math.sinh(Math.PI * (1 - 2 * coords.y / n)));
+    const minX = (minLng * Math.PI) / 180 * R;
+    const maxX = (maxLng * Math.PI) / 180 * R;
+    const minY = R * Math.log(Math.tan(Math.PI / 4 + yMin * Math.PI / 360));
+    const maxY = R * Math.log(Math.tan(Math.PI / 4 + yMax * Math.PI / 360));
+    return this._url.replace('{bbox-epsg-3857}', `${minX.toFixed(2)},${minY.toFixed(2)},${maxX.toFixed(2)},${maxY.toFixed(2)}`);
+  },
+}) as unknown as typeof L.TileLayer;
+
 export default function LeafletMap(props: MapViewProps) {
   const {
     route, routeB, showRoute, highlightDistance, activeLayers, basemapId,
@@ -170,18 +191,24 @@ export default function LeafletMap(props: MapViewProps) {
       const id = layer.id;
       const shouldShow = activeLayers?.has(id);
 
-      // XYZ raster overlays
+      // Raster overlays (XYZ + WMS-style bbox templates)
       if (layer.raster && layer.raster.kind !== 'rainviewer' && layer.raster.kind !== 'terrain') {
         const exists = overlayLayersRef.current[id];
         if (shouldShow && !exists) {
           const cfg = layer.raster;
-          const urls = expandTileUrls(cfg.url, cfg.subdomains);
-          const tile = L.tileLayer(urls[0], {
-            minZoom: cfg.minZoom ?? layer.minZoom,
-            maxZoom: cfg.maxZoom ?? 19,
-            opacity: cfg.opacity ?? 1,
-            attribution: layer.attribution,
-          });
+          const tile = cfg.kind === 'wms'
+            ? new BboxTileLayer(cfg.url, {
+                minZoom: cfg.minZoom ?? layer.minZoom,
+                maxZoom: cfg.maxZoom ?? 19,
+                opacity: cfg.opacity ?? 1,
+                attribution: layer.attribution,
+              })
+            : L.tileLayer(expandTileUrls(cfg.url, cfg.subdomains)[0], {
+                minZoom: cfg.minZoom ?? layer.minZoom,
+                maxZoom: cfg.maxZoom ?? 19,
+                opacity: cfg.opacity ?? 1,
+                attribution: layer.attribution,
+              });
           tile.addTo(map);
           overlayLayersRef.current[id] = tile;
         } else if (!shouldShow && exists) {
