@@ -105,6 +105,17 @@ function AppInner() {
   // MapLibre GL needs WebGL; environments without it fall back to the
   // Leaflet compatibility renderer (Canvas 2D, no WebGL required).
   const [useLeaflet, setUseLeaflet] = useState<boolean>(() => !detectWebGLForMapLibre());
+  // Manual escape hatch: if the map area stays blank, the user can force
+  // the compatibility mode after a few seconds.
+  const [showFallbackHint, setShowFallbackHint] = useState(false);
+  useEffect(() => {
+    if (useLeaflet) {
+      setShowFallbackHint(false);
+      return;
+    }
+    const t = window.setTimeout(() => setShowFallbackHint(true), 10000);
+    return () => window.clearTimeout(t);
+  }, [useLeaflet]);
 
   const handleToggle = useCallback((layerId: string) => {
     setActiveLayers((prev) => {
@@ -433,6 +444,14 @@ function AppInner() {
             <div className="absolute bottom-16 left-3 z-[1000] rounded bg-amber-100/90 px-2 py-1 text-[10px] font-medium text-amber-800 shadow-md backdrop-blur">
               Kompatibilitätsmodus (ohne WebGL/3D) — Basiskarten, Ebenen &amp; Routen funktionieren
             </div>
+          )}
+          {showFallbackHint && !useLeaflet && (
+            <button
+              onClick={() => setUseLeaflet(true)}
+              className="absolute bottom-16 left-3 z-[1000] rounded bg-red-100/95 px-2 py-1 text-[10px] font-medium text-red-700 shadow-md hover:bg-red-200"
+            >
+              ⚠️ Karte bleibt leer? → Kompatibilitätsmodus aktivieren
+            </button>
           )}
           <div className="absolute top-2 right-2 z-[1000] flex gap-2">
             <GpxImportButton />

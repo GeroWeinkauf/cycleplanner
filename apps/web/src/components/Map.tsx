@@ -223,6 +223,9 @@ export default function MapView(props: MapProps) {
       center: [12.3731, 51.3397],
       zoom: 12,
       attributionControl: false,
+      // Needed for the pixel probe (watchdog) — the drawing buffer must
+      // survive compositing so readPixels can verify tiles were drawn.
+      preserveDrawingBuffer: true,
     });
 
     map.addControl(new NavigationControl(), 'top-left');
@@ -246,15 +249,78 @@ export default function MapView(props: MapProps) {
 
     // Render watchdog: a working map MUST fire 'render' shortly after
     // 'load' (even just the background frame). If no frame renders within
-    // 8 s, WebGL rendering is broken in this environment (e.g. software
-    // rasterizer limits) — fall back to Leaflet so the app stays usable.
+    // 8 s — or the rendered pixels stay uniform background (no tiles drawn,
+    // broken software rasterizer) — fall back to Leaflet so the app stays
+    // usable.
     let renderedFrame = false;
+    let tilesArrived = false;
     map.once('render', () => { renderedFrame = true; });
+    map.on('data', (e) => {
+      const sourceId = (e as unknown as { sourceId?: string }).sourceId;
+      if (e.dataType === 'source' && sourceId === 'basemap') tilesArrived = true;
+    });
+
+    const BACKGROUND_RGB: [number, number, number] = [229, 231, 235]; // #e5e7eb
+    const checkPixels = () => {
+      if (mapRef.current !== map || webglFailedRef.failed) return;
+      try {
+        const canvas = map.getCanvas();
+        const gl = canvas.getContext('webgl2') || canvas.getContext('webgl');
+        if (!gl) {
+          failToLeaflet();
+          return;
+        }
+        map.triggerRepaint();
+        map.once('render', () => {
+          if (mapRef.current !== map || webglFailedRef.failed) return;
+          try {
+            const w = canvas.width;
+            const h = canvas.height;
+            const points: Array<[number, number]> = [
+              [Math.floor(w / 2), Math.floor(h / 2)],
+              [Math.floor(w * 0.1), Math.floor(h * 0.1)],
+              [Math.floor(w * 0.9), Math.floor(h * 0.1)],
+              [Math.floor(w * 0.1), Math.floor(h * 0.9)],
+              [Math.floor(w * 0.9), Math.floor(h * 0.9)],
+            ];
+            const pixel = new Uint8Array(4);
+            let allBackground = true;
+            for (const [x, y] of points) {
+              gl.readPixels(x, y, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, pixel);
+              const same =
+                Math.abs(pixel[0] - BACKGROUND_RGB[0]) <= 2 &&
+                Math.abs(pixel[1] - BACKGROUND_RGB[1]) <= 2 &&
+                Math.abs(pixel[2] - BACKGROUND_RGB[2]) <= 2;
+              if (!same) allBackground = false;
+            }
+            console.warn('[map] Pixel-Probe:', { renderedFrame, tilesArrived, allBackground });
+            if (allBackground && !tilesArrived) {
+              failToLeaflet();
+            }
+          } catch {
+            failToLeaflet();
+          }
+        });
+      } catch {
+        failToLeaflet();
+      }
+    };
+
     map.once('load', () => {
       const armWatchdog = () => {
         window.setTimeout(() => {
-          if (!renderedFrame) failToLeaflet();
-        }, 8000);
+          if (webglFailedRef.failed) return;
+          if (!renderedFrame) {
+            failToLeaflet();
+            return;
+          }
+          if (!tilesArrived) {
+            // no basemap tiles arrived at all — something is broken
+            failToLeaflet();
+            return;
+          }
+          checkPixels();
+        }, 6000);
       };
       if (document.visibilityState === 'visible') {
         armWatchdog();
