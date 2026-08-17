@@ -135,8 +135,9 @@ function addRasterSource(map: MlMap, id: string, cfg: RasterTileConfig) {
     type: 'raster',
     tiles,
     tileSize: cfg.tileSize ?? 256,
-    minzoom: cfg.minZoom,
-    maxzoom: cfg.maxZoom,
+    // MapLibre validates source specs strictly — only include defined values
+    ...(cfg.minZoom !== undefined ? { minzoom: cfg.minZoom } : {}),
+    ...(cfg.maxZoom !== undefined ? { maxzoom: cfg.maxZoom } : {}),
   });
 }
 
@@ -189,21 +190,28 @@ export default function MapView(props: MapProps) {
    * fires `load` — robust against React StrictMode's double mount.
    */
   const whenStyleReady = useCallback((map: MlMap, fn: () => void) => {
+    const runSafe = () => {
+      try {
+        fn();
+      } catch (e) {
+        console.error('[map] style op failed', e);
+      }
+    };
     if (mapRef.current !== map) {
       // stale map instance (e.g. StrictMode's removed first mount) — drop
       return;
     }
     if (styleLoadedRef.current) {
-      fn();
+      runSafe();
       return;
     }
     // Style may already be loaded synchronously (e.g. inline style)
     if (map.isStyleLoaded()) {
       styleLoadedRef.current = true;
-      fn();
+      runSafe();
       return;
     }
-    pendingStyleOpsRef.current.push(fn);
+    pendingStyleOpsRef.current.push(runSafe);
   }, []);
 
   // ── Init map ──────────────────────────────
