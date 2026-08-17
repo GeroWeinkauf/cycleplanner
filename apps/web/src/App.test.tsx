@@ -63,6 +63,14 @@ vi.mock('maplibre-gl', () => {
     NavigationControl: vi.fn(),
     ScaleControl: vi.fn(),
     LngLatBounds: vi.fn().mockImplementation(() => ({ extend: vi.fn() })),
+    default: {
+      Map: vi.fn().mockImplementation(makeMap),
+      Marker: vi.fn().mockImplementation(makeMarker),
+      Popup: vi.fn().mockImplementation(makePopup),
+      NavigationControl: vi.fn(),
+      ScaleControl: vi.fn(),
+      LngLatBounds: vi.fn().mockImplementation(() => ({ extend: vi.fn() })),
+    },
   };
 });
 

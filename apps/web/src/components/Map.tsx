@@ -1,13 +1,10 @@
 import { useEffect, useRef, useCallback } from 'react';
-import {
+import maplibregl from 'maplibre-gl';
+import type {
   Map as MlMap,
   Marker,
   Popup,
-  NavigationControl,
-  ScaleControl,
   LngLatBounds,
-} from 'maplibre-gl';
-import type {
   GeoJSONSource,
   MapMouseEvent,
   MapLayerMouseEvent,
@@ -23,6 +20,17 @@ import { DEFAULT_BASEMAP_ID, expandTileUrls, getBasemap } from '../layers/basema
 import type { RasterTileConfig } from '../layers/types';
 import type { RouteResponse, Poi } from '@cycleplanner/shared';
 import { POI_CATEGORIES } from '@cycleplanner/shared';
+
+// Runtime values from the default namespace — works across MapLibre versions
+// (v6 named exports, v3 CJS/AMD interop where LngLatBounds lacks a named export).
+const {
+  Map: MlMapCtor,
+  Marker: MarkerCtor,
+  Popup: PopupCtor,
+  NavigationControl,
+  ScaleControl,
+  LngLatBounds: LngLatBoundsCtor,
+} = maplibregl;
 
 interface MapProps {
   route?: RouteResponse | null;
@@ -88,7 +96,7 @@ function firstVectorLayerId(map: MlMap): string | undefined {
 }
 
 function boundsOf(coords: Array<[number, number]>): LngLatBounds {
-  const bounds = new LngLatBounds();
+  const bounds = new LngLatBoundsCtor();
   for (const [lng, lat] of coords) bounds.extend([lng, lat]);
   return bounds;
 }
@@ -206,7 +214,7 @@ export default function MapView(props: MapProps) {
     // and renders it automatically — independent of the style-op queue.
     const initialBm = getBasemap(basemapId ?? DEFAULT_BASEMAP_ID);
 
-    const map = new MlMap({
+    const map = new MlMapCtor({
       container: containerRef.current,
       style: {
         version: 8,
@@ -282,7 +290,7 @@ export default function MapView(props: MapProps) {
 
     onMapFitBounds?.((pts, opts) => {
       if (pts.length === 0) return;
-      const bounds = new LngLatBounds();
+      const bounds = new LngLatBoundsCtor();
       for (const p of pts) bounds.extend([p.lng, p.lat]);
       map.fitBounds(bounds, {
         padding: opts?.padding
@@ -587,7 +595,7 @@ export default function MapView(props: MapProps) {
       </div>`;
       el.title = poi.name || style.title;
 
-      const marker = new Marker({ element: el, anchor: 'center' })
+      const marker = new MarkerCtor({ element: el, anchor: 'center' })
         .setLngLat([poi.lng, poi.lat])
         .addTo(map);
 
@@ -625,7 +633,7 @@ export default function MapView(props: MapProps) {
       el.className = 'wp-div-icon';
       el.innerHTML = iconHtml;
 
-      const marker = new Marker({ element: el, anchor: 'center', draggable: true })
+      const marker = new MarkerCtor({ element: el, anchor: 'center', draggable: true })
         .setLngLat([wp.lng, wp.lat])
         .addTo(map);
 
@@ -643,7 +651,7 @@ export default function MapView(props: MapProps) {
             ✕ Entfernen
           </button>
         </div>`;
-        const popup = new Popup({ offset: [0, -14], closeButton: true, className: 'wp-popup' })
+        const popup = new PopupCtor({ offset: [0, -14], closeButton: true, className: 'wp-popup' })
           .setLngLat([wp.lng, wp.lat])
           .setHTML(popupHtml)
           .addTo(map);
