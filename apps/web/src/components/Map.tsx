@@ -202,14 +202,26 @@ export default function MapView(props: MapProps) {
   useEffect(() => {
     if (!containerRef.current || mapRef.current) return;
 
+    // The initial basemap is part of the constructor style so MapLibre loads
+    // and renders it automatically — independent of the style-op queue.
+    const initialBm = getBasemap(basemapId ?? DEFAULT_BASEMAP_ID);
+
     const map = new MlMap({
       container: containerRef.current,
       style: {
         version: 8,
-        sources: {},
+        sources: {
+          basemap: {
+            type: 'raster',
+            tiles: expandTileUrls(initialBm.url, initialBm.subdomains),
+            tileSize: initialBm.tileSize ?? 256,
+            maxzoom: initialBm.maxZoom ?? 19,
+          },
+        },
         layers: [
-          // neutral background while the basemap is added after style load
+          // neutral background while tiles load
           { id: 'background', type: 'background', paint: { 'background-color': '#e5e7eb' } },
+          { id: 'basemap', type: 'raster', source: 'basemap' },
         ],
       },
       center: [12.3731, 51.3397],
