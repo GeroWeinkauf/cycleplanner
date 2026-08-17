@@ -1,13 +1,17 @@
 import { LAYERS } from '../layers/registry';
+import { getBasemap } from '../layers/basemaps';
 
 interface AttributionProps {
   activeLayers: Set<string>;
+  basemapId: string;
 }
 
-export default function Attribution({ activeLayers }: AttributionProps) {
-  const attributions = LAYERS.filter((l) => activeLayers.has(l.id)).map((l) => l.attribution);
-
-  if (attributions.length === 0) return null;
+export default function Attribution({ activeLayers, basemapId }: AttributionProps) {
+  const basemap = getBasemap(basemapId);
+  const attributions = [
+    basemap.attribution,
+    ...LAYERS.filter((l) => activeLayers.has(l.id)).map((l) => l.attribution),
+  ];
 
   return (
     <div className="absolute bottom-1 right-1 z-10 rounded bg-white/70 px-2 py-0.5 text-[10px] text-gray-600">

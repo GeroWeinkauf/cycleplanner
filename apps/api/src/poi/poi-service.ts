@@ -54,6 +54,9 @@ const OVERPASS_ENDPOINTS = [
 
 // ── Overpass query building ─────────────────
 
+/** Minimum perimeter (m) for a closed water way to count as a "larger" lake */
+const LAKE_MIN_PERIMETER_M = 2500;
+
 function buildOverpassQuery(
   bbox: string,
   categories: PoiCategory[],
@@ -63,24 +66,30 @@ function buildOverpassQuery(
     ? categories
     : POI_CATEGORIES.map((c) => c.key);
 
-  const tagSets: string[][] = [];
+  const parts: string[] = [];
   for (const cat of cats) {
+    // Lakes are mapped as ways/relations in OSM — query them with
+    // `out center` and a size filter (closed ways only, min perimeter).
+    if (cat === 'lake') {
+      parts.push(
+        'way["natural"="water"]["name"](if: is_closed() && length() > ' + LAKE_MIN_PERIMETER_M + ')' + bbox + ';',
+        'relation["natural"="water"]["name"]' + bbox + ';',
+      );
+      continue;
+    }
     const meta = POI_CATEGORIES.find((c) => c.key === cat);
     if (meta && meta.osmTags.length > 0) {
-      tagSets.push(meta.osmTags);
+      for (const tag of meta.osmTags) {
+        const [key, value] = tag.split('=');
+        parts.push('node["' + key + '"="' + value + '"]' + bbox + ';');
+      }
     }
   }
 
-  // Flatten all tags into union query
-  const tagFilters = tagSets.flat().map((tag) => {
-    const [key, value] = tag.split('=');
-    return 'node["' + key + '"="' + value + '"]' + bbox + ';';
-  });
-
   const query =
-    '[out:json][timeout:8];(' +
-    tagFilters.join('\n') +
-    ');out body ' + limit + ';';
+    '[out:json][timeout:10];(' +
+    parts.join('\n') +
+    ');out center ' + limit + ';';
 
   return query;
 }
@@ -143,6 +152,8 @@ interface OverpassElement {
   id: number;
   lat?: number;
   lon?: number;
+  /** Center point for ways/relations when using `out center` */
+  center?: { lat: number; lon: number };
   tags?: Record<string, string>;
 }
 
@@ -223,20 +234,33 @@ export async function queryPois(
       console.log('[poi] Overpass returned', elements.length, 'elements');
 
       const pois: Poi[] = elements
-        .filter((el) => el.type === 'node' && el.lat !== undefined && el.lon !== undefined)
         .map((el) => {
+          // Nodes carry lat/lon directly; ways/relations carry a `center`
+          // (Overpass `out center`) — used for lakes.
+          let lat: number | undefined;
+          let lng: number | undefined;
+          if (el.type === 'node' && el.lat !== undefined && el.lon !== undefined) {
+            lat = el.lat;
+            lng = el.lon;
+          } else if (el.center && el.center.lat !== undefined && el.center.lon !== undefined) {
+            lat = el.center.lat;
+            lng = el.center.lon;
+          }
+          if (lat === undefined || lng === undefined) return null;
+
           const tags = el.tags || {};
           const category = classifyPoi(tags);
           return {
             id: 'poi-' + el.id,
             name: tags.name || tags.ref || '',
-            lat: el.lat!,
-            lng: el.lon!,
+            lat,
+            lng,
             category,
             tags,
             source: 'overpass' as PoiSource,
           };
         })
+        .filter((p): p is Poi => p !== null)
         .slice(0, limit);
 
       console.log('[poi] Returning', pois.length, 'POIs');

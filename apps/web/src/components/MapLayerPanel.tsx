@@ -1,13 +1,21 @@
 import { useState } from 'react';
 import { LAYERS } from '../layers/registry';
+import { LAYER_GROUPS } from '../layers/types';
+import { BASEMAPS } from '../layers/basemaps';
 import { useWaypointStore } from '../store/useWaypointStore';
 
 interface Props {
   activeLayers: Set<string>;
   onToggleLayer: (layerId: string) => void;
+  basemapId: string;
+  onBasemapChange: (basemapId: string) => void;
+  poiEnabled: Record<'supermarket' | 'lake', boolean>;
+  onTogglePoi: (category: 'supermarket' | 'lake') => void;
 }
 
-export default function MapLayerPanel({ activeLayers, onToggleLayer }: Props) {
+export default function MapLayerPanel({
+  activeLayers, onToggleLayer, basemapId, onBasemapChange, poiEnabled, onTogglePoi,
+}: Props) {
   const [open, setOpen] = useState(false);
   const importedTracks = useWaypointStore((s) => s.importedTracks);
   const removeImportedTrack = useWaypointStore((s) => s.removeImportedTrack);
@@ -57,25 +65,77 @@ export default function MapLayerPanel({ activeLayers, onToggleLayer }: Props) {
 
   return (
     <div className="absolute bottom-3 left-3 z-[1000]">
-      <div className="rounded-lg bg-white shadow-lg border border-gray-200 min-w-[200px] max-h-[360px] flex flex-col">
+      <div className="rounded-lg bg-white shadow-lg border border-gray-200 min-w-[240px] max-h-[70vh] flex flex-col">
         <div className="flex items-center justify-between px-2 py-1.5 border-b border-gray-100">
           <span className="text-[10px] font-semibold text-gray-500">Ebenen</span>
-          <button onClick={() => setOpen(false)} className="text-gray-400 hover:text-gray-600 p-0.5">
+          <button onClick={() => setOpen(false)} className="text-gray-400 hover:text-gray-600 p-0.5" aria-label="Ebenen schließen">
             <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
             </svg>
           </button>
         </div>
+
         <div className="overflow-y-auto p-1.5">
-          {LAYERS.map(layer => {
-            const active = activeLayers.has(layer.id);
-            return (
-              <label key={layer.id} className="flex cursor-pointer items-center gap-2 rounded px-1 py-0.5 hover:bg-gray-50 text-[11px]">
-                <input type="checkbox" checked={active} onChange={() => onToggleLayer(layer.id)} className="h-3 w-3 accent-blue-600" />
-                <span className="text-gray-700">{layer.label}</span>
+          {/* Basemap switcher (exclusive) */}
+          <div className="mb-1.5">
+            <div className="text-[10px] font-semibold text-gray-400 px-1 mb-0.5">Basiskarte</div>
+            {BASEMAPS.map(bm => (
+              <label key={bm.id} className="flex cursor-pointer items-start gap-2 rounded px-1 py-0.5 hover:bg-gray-50 text-[11px]">
+                <input
+                  type="radio"
+                  name="basemap"
+                  checked={basemapId === bm.id}
+                  onChange={() => onBasemapChange(bm.id)}
+                  className="mt-0.5 h-3 w-3 shrink-0 accent-blue-600"
+                />
+                <span className="text-gray-700">{bm.label}</span>
               </label>
+            ))}
+          </div>
+
+          {/* Overlay layers grouped thematically */}
+          {LAYER_GROUPS.map(({ id: groupId, label: groupLabel }) => {
+            const groupLayers = LAYERS.filter((l) => l.group === groupId);
+            if (groupLayers.length === 0) return null;
+            return (
+              <div key={groupId} className="mt-1.5 border-t border-gray-100 pt-1.5">
+                <div className="text-[10px] font-semibold text-gray-400 px-1 mb-0.5">{groupLabel}</div>
+                {groupLayers.map(layer => {
+                  const active = activeLayers.has(layer.id);
+                  return (
+                    <label key={layer.id} className="flex cursor-pointer items-start gap-2 rounded px-1 py-1 hover:bg-gray-50 text-[11px]">
+                      <input type="checkbox" checked={active} onChange={() => onToggleLayer(layer.id)} className="mt-0.5 h-3 w-3 shrink-0 accent-blue-600" />
+                      <span className="min-w-0">
+                        <span className="block text-gray-700">{layer.label}</span>
+                        {layer.legend && (
+                          <span className="block text-[9px] leading-tight text-gray-400">{layer.legend}</span>
+                        )}
+                      </span>
+                    </label>
+                  );
+                })}
+              </div>
             );
           })}
+
+          {/* POI markers */}
+          <div className="mt-1.5 border-t border-gray-100 pt-1.5">
+            <div className="text-[10px] font-semibold text-gray-400 px-1 mb-0.5">POIs</div>
+            <label className="flex cursor-pointer items-start gap-2 rounded px-1 py-1 hover:bg-gray-50 text-[11px]">
+              <input type="checkbox" checked={poiEnabled.supermarket} onChange={() => onTogglePoi('supermarket')} className="mt-0.5 h-3 w-3 shrink-0 accent-blue-600" />
+              <span className="min-w-0">
+                <span className="block text-gray-700">Supermärkte</span>
+                <span className="block text-[9px] leading-tight text-gray-400">🛒 Läden in der Nähe (ab ~500 m Maßstab)</span>
+              </span>
+            </label>
+            <label className="flex cursor-pointer items-start gap-2 rounded px-1 py-1 hover:bg-gray-50 text-[11px]">
+              <input type="checkbox" checked={poiEnabled.lake} onChange={() => onTogglePoi('lake')} className="mt-0.5 h-3 w-3 shrink-0 accent-blue-600" />
+              <span className="min-w-0">
+                <span className="block text-gray-700">Badeseen</span>
+                <span className="block text-[9px] leading-tight text-gray-400">🏊 Größere Seen mit Google-Infos &amp; Fotos</span>
+              </span>
+            </label>
+          </div>
 
           {/* Imported tracks section */}
           {trackNames.length > 0 && (

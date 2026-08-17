@@ -24,6 +24,7 @@ interface GooglePlaceData {
   types: string[];
   business_status?: string;
   price_level?: number;
+  photos?: Array<{ photo_reference: string; width: number; height: number }>;
 }
 
 /**
@@ -43,7 +44,7 @@ export default function PoiDetail({ poi, onClose, onFlyTo, onGoogleMaps }: Props
     setGoogleError(false);
     if (!poi) return;
 
-    const fetchGoogle = ['supermarket', 'restaurant', 'cafe', 'bakery'].includes(poi.category);
+    const fetchGoogle = ['supermarket', 'restaurant', 'cafe', 'bakery', 'lake'].includes(poi.category);
     if (!fetchGoogle) return;
 
     setGoogleLoading(true);
@@ -130,6 +131,21 @@ export default function PoiDetail({ poi, onClose, onFlyTo, onGoogleMaps }: Props
             <div className="text-[10px] text-amber-700 font-medium mb-1 flex items-center gap-1">
               <span>📍</span> Google Maps
             </div>
+
+            {/* Photos (lakes etc.) — proxied via the backend to keep the key secret */}
+            {googlePlace.photos && googlePlace.photos.length > 0 && (
+              <div className="mb-1.5 flex gap-1 overflow-x-auto">
+                {googlePlace.photos.slice(0, 4).map((photo, i) => (
+                  <img
+                    key={i}
+                    src={`/api/pois/google-photo?ref=${encodeURIComponent(photo.photo_reference)}&maxwidth=400`}
+                    alt={googlePlace.name + ' Foto ' + (i + 1)}
+                    className="h-20 w-28 shrink-0 rounded object-cover border border-amber-100"
+                    loading="lazy"
+                  />
+                ))}
+              </div>
+            )}
 
             {/* Rating */}
             {googlePlace.rating != null && (

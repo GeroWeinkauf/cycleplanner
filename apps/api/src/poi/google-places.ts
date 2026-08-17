@@ -163,6 +163,12 @@ export interface GooglePlaceDetails {
   types: string[];
   business_status?: string;
   price_level?: number;
+  photos?: Array<{ photo_reference: string; width: number; height: number }>;
+}
+
+/** Get the raw Google API key (also used by the photo proxy route) */
+export function getGoogleApiKey(): string {
+  return loadApiKey();
 }
 
 /**
@@ -185,14 +191,19 @@ export async function findGooglePlace(
     return { place: null, usage: { callsThisMonth, limit: MONTHLY_LIMIT } };
   }
 
+  // Category-dependent search: lakes are natural features, supermarkets shops
+  const isLake = poi.category === 'lake';
+  const type = isLake ? 'natural_feature' : 'supermarket';
+  const keyword = poi.name || (isLake ? 'See' : 'supermarket');
+
   try {
     // Step 1: Search for the place nearby
     const searchUrl = new URL('https://maps.googleapis.com/maps/api/place/nearbysearch/json');
     searchUrl.searchParams.set('key', apiKey);
     searchUrl.searchParams.set('location', `${poi.lat},${poi.lng}`);
-    searchUrl.searchParams.set('radius', '500');
-    searchUrl.searchParams.set('keyword', poi.name || 'supermarket');
-    searchUrl.searchParams.set('type', 'supermarket');
+    searchUrl.searchParams.set('radius', isLake ? '1500' : '500');
+    searchUrl.searchParams.set('keyword', keyword);
+    searchUrl.searchParams.set('type', type);
     searchUrl.searchParams.set('language', 'de');
 
     const searchRes = await fetch(searchUrl.toString());
@@ -209,12 +220,12 @@ export async function findGooglePlace(
 
     const best = searchData.results[0];
 
-    // Step 2: Get details
+    // Step 2: Get details (incl. photos)
     const detailsUrl = new URL('https://maps.googleapis.com/maps/api/place/details/json');
     detailsUrl.searchParams.set('key', apiKey);
     detailsUrl.searchParams.set('place_id', best.place_id);
     detailsUrl.searchParams.set('language', 'de');
-    detailsUrl.searchParams.set('fields', 'name,formatted_address,rating,user_ratings_total,opening_hours,formatted_phone_number,website,types,business_status,price_level');
+    detailsUrl.searchParams.set('fields', 'name,formatted_address,rating,user_ratings_total,opening_hours,formatted_phone_number,website,types,business_status,price_level,photo');
 
     const detailsRes = await fetch(detailsUrl.toString());
     if (!detailsRes.ok) return { place: null, usage: { callsThisMonth, limit: MONTHLY_LIMIT } };
@@ -231,5 +242,28 @@ export async function findGooglePlace(
     return { place: detailsData.result || null, usage: { callsThisMonth, limit: MONTHLY_LIMIT } };
   } catch {
     return { place: null, usage: { callsThisMonth, limit: MONTHLY_LIMIT } };
+  }
+}
+
+/**
+ * Fetch a Google Places photo by reference (proxied to keep the key server-side).
+ */
+export async function fetchGooglePhoto(
+  photoReference: string,
+  maxWidth = 400,
+): Promise<{ buffer: Buffer; contentType: string } | null> {
+  const apiKey = loadApiKey();
+  if (!apiKey) return null;
+  try {
+    const url = new URL('https://maps.googleapis.com/maps/api/place/photo');
+    url.searchParams.set('key', apiKey);
+    url.searchParams.set('photo_reference', photoReference);
+    url.searchParams.set('maxwidth', String(maxWidth));
+    const res = await fetch(url.toString());
+    if (!res.ok) return null;
+    const buffer = Buffer.from(await res.arrayBuffer());
+    return { buffer, contentType: res.headers.get('content-type') || 'image/jpeg' };
+  } catch {
+    return null;
   }
 }

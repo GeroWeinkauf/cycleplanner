@@ -25,7 +25,7 @@ import { computeQualityScore } from './analysis/score-service.js';
 import { generateCandidates } from './analysis/candidates-service.js';
 import { queryPois } from './poi/poi-service.js';
 import { runAiAgent } from './ai/ai-agent.js';
-import { findGooglePlace } from './poi/google-places.js';
+import { findGooglePlace, fetchGooglePhoto } from './poi/google-places.js';
 import type { GooglePlaceDetails } from './poi/google-places.js';
 import {
   listPresets,
@@ -1135,6 +1135,26 @@ export function buildApp() {
         req.log.error({ err }, 'Candidate generation failed');
         return reply.status(500).send({ error: 'Candidates failed' } as { error: string });
       }
+    },
+  );
+
+  // ── Google Places Photo proxy (key stays server-side) ──
+  app.get<{
+    Querystring: { ref?: string; maxwidth?: string };
+  }>(
+    '/api/pois/google-photo',
+    async (req, reply) => {
+      const ref = req.query.ref;
+      const maxWidth = Math.min(parseInt(req.query.maxwidth || '400', 10) || 400, 800);
+      if (!ref) {
+        return reply.status(400).send({ error: 'ref required' });
+      }
+      const photo = await fetchGooglePhoto(ref, maxWidth);
+      if (!photo) {
+        return reply.status(404).send({ error: 'photo not available' });
+      }
+      reply.header('Cache-Control', 'public, max-age=86400');
+      return reply.type(photo.contentType).send(photo.buffer);
     },
   );
 

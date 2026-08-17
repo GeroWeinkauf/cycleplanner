@@ -460,7 +460,8 @@ export type PoiCategory =
   | 'hotel'
   | 'trainStation'
   | 'viewpoint'
-  | 'picnic';
+  | 'picnic'
+  | 'lake';
 
 /** Source for POI data enrichment */
 export type PoiSource = 'openstreetmap' | 'overpass';
@@ -504,6 +505,7 @@ export const POI_CATEGORIES: PoiCategoryMeta[] = [
   { key: 'trainStation', label: 'Bahnhöfe', icon: '🚂', osmTags: ['railway=station', 'railway=halt'] },
   { key: 'viewpoint', label: 'Aussichtspunkte', icon: '🏔️', osmTags: ['tourism=viewpoint'] },
   { key: 'picnic', label: 'Picknickplätze', icon: '🧺', osmTags: ['tourism=picnic_site', 'leisure=picnic_table'] },
+  { key: 'lake', label: 'Badeseen', icon: '🏊', osmTags: ['natural=water'] },
 ];
 
 /** Request for POI queries */

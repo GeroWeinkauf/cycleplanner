@@ -1,4 +1,5 @@
 import type { RouteResponse, ElevationProfile, RouteAnalysis } from '@cycleplanner/shared';
+import { useRideStore } from '../store/useRideStore';
 
 interface Props {
   route?: RouteResponse | null;
@@ -7,6 +8,8 @@ interface Props {
 }
 
 export default function RouteSummary({ route, elevation, analysis }: Props) {
+  const avgSpeedKmh = useRideStore((s) => s.avgSpeedKmh);
+
   if (!route) {
     return (
       <div className="px-3 py-2 text-xs text-gray-400">
@@ -22,6 +25,12 @@ export default function RouteSummary({ route, elevation, analysis }: Props) {
   const displayTime = min >= 60
     ? Math.floor(min / 60) + ' h ' + (min % 60) + ' min'
     : min + ' min';
+
+  // Estimated riding time at the configured average speed
+  const estMin = (dist / avgSpeedKmh) * 60;
+  const estHours = Math.floor(estMin / 60);
+  const estRest = Math.round(estMin % 60);
+  const estTime = estHours > 0 ? `${estHours} h ${estRest} min` : `${estRest} min`;
 
   return (
     <div className="border-t border-gray-200 px-3 py-2">
@@ -39,6 +48,11 @@ export default function RouteSummary({ route, elevation, analysis }: Props) {
           <div className="text-[10px] text-gray-500">Dauer</div>
           <div className="text-sm font-bold text-blue-700" title="Valhalla Fahrzeit-Schaetzung basierend auf Profil-Geschwindigkeit">{displayTime}</div>
         </div>
+      </div>
+
+      {/* Estimated time at configured average speed */}
+      <div className="mb-2 rounded bg-indigo-50 px-2 py-1.5 text-[11px] text-indigo-700">
+        Fahrzeit bei Ø {avgSpeedKmh} km/h: <span className="font-semibold">{estTime}</span>
       </div>
 
       {/* Elevation */}

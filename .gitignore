@@ -1,4 +1,6 @@
 data/
+!apps/web/public/data/
+!apps/web/public/data/**
 !data/usage/google-places-usage.json
 node_modules/
 .env
@@ -7,3 +9,5 @@ dist/
 .pnpm-store/
 .claude/
 auth/google-api-key.txt
+_tilecheck/
+scripts/downloads/
