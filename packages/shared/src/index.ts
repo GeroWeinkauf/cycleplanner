@@ -461,6 +461,7 @@ export type PoiCategory =
   | 'trainStation'
   | 'viewpoint'
   | 'picnic'
+  | 'bench'
   | 'lake';
 
 /** Source for POI data enrichment */
@@ -505,6 +506,7 @@ export const POI_CATEGORIES: PoiCategoryMeta[] = [
   { key: 'trainStation', label: 'Bahnhöfe', icon: '🚂', osmTags: ['railway=station', 'railway=halt'] },
   { key: 'viewpoint', label: 'Aussichtspunkte', icon: '🏔️', osmTags: ['tourism=viewpoint'] },
   { key: 'picnic', label: 'Picknickplätze', icon: '🧺', osmTags: ['tourism=picnic_site', 'leisure=picnic_table'] },
+  { key: 'bench', label: 'Bänke', icon: '🪑', osmTags: ['amenity=bench'] },
   { key: 'lake', label: 'Badeseen', icon: '🏊', osmTags: ['natural=water'] },
 ];
 
@@ -524,4 +526,122 @@ export interface PoiQueryRequest {
 export interface PoiQueryResponse {
   pois: Poi[];
   source: PoiSource;
+}
+
+// ── Weather along the route (P4, Open-Meteo) ──
+
+/** Risk level for a route segment: 0 = ok, 1 = Achtung, 2 = kritisch */
+export type WeatherRiskLevel = 0 | 1 | 2;
+
+/** Weather for one segment of the route (bucketed by distance) */
+export interface WeatherSegment {
+  fromKm: number;
+  toKm: number;
+  level: WeatherRiskLevel;
+  tempC: number;
+  /** Precipitation probability 0-100 */
+  precipProbPct: number;
+  /** Precipitation amount mm/h */
+  rainMm: number;
+  windSpeedKmh: number;
+  /** Meteorological wind direction in degrees (where the wind comes FROM) */
+  windDirDeg: number;
+  /** Positive = headwind, negative = tailwind (km/h) */
+  headwindKmh: number;
+  weatherCode: number;
+  /** German label, e.g. "Regen" / "Gewitter" / "Sonnig" */
+  weatherLabel: string;
+}
+
+export interface RouteWeatherSummary {
+  avgHeadwindKmh: number;
+  avgTailwindKmh: number;
+  maxPrecipProbPct: number;
+  avgTempC: number;
+  avgWindKmh: number;
+  stormRisk: boolean;
+}
+
+export interface RouteWeatherReport {
+  startTimeIso: string;
+  segments: WeatherSegment[];
+  summary: RouteWeatherSummary;
+}
+
+/** One evaluated departure window for the start-time optimizer */
+export interface StartWindow {
+  startTimeIso: string;
+  level: WeatherRiskLevel;
+  /** Overall comfort score 0-100 */
+  score: number;
+  maxPrecipProbPct: number;
+  avgTempC: number;
+  avgHeadwindKmh: number;
+  avgTailwindKmh: number;
+  weatherLabel: string;
+}
+
+export interface WeatherRouteRequest {
+  /** Route geometry as [[lng,lat],...] (may be dense — backend samples) */
+  route: Array<[number, number]>;
+  startTimeIso?: string;
+  avgSpeedKmh?: number;
+}
+
+export interface WeatherWindowsRequest {
+  route: Array<[number, number]>;
+  avgSpeedKmh?: number;
+  /** Evaluate departure windows within the next N hours (default 48) */
+  horizonHours?: number;
+}
+
+export interface WeatherWindowsResponse {
+  windows: StartWindow[];
+}
+
+/** Wind-optimized route: best candidate re-ranked with wind data */
+export interface WindOptimizedRoute {
+  geometry: string;
+  summary: {
+    distanceKm: number;
+    durationMin: number;
+    ascentM: number;
+    descentM: number;
+  };
+  /** Wind summary of the chosen route (null when weather unavailable) */
+  wind: RouteWeatherSummary | null;
+  alternatives: Array<{
+    distanceKm: number;
+    durationMin: number;
+    avgHeadwindKmh: number;
+    avgTailwindKmh: number;
+    qualityScore: number;
+    source: string;
+  }>;
+}
+
+export interface WindOptimizedRouteRequest {
+  waypoints: Array<{ lat: number; lng: number; label?: string }>;
+  profile: ProfileId;
+  costingOverrides?: CostingOverrides;
+  exclusionFlags?: ExclusionFlags;
+  startTimeIso?: string;
+  avgSpeedKmh?: number;
+}
+
+// ── Segment library (saved favorite route parts) ──
+
+/** A saved favorite route segment */
+export interface SavedSegment {
+  id: number;
+  name: string;
+  /** Geometry as [[lng,lat],...] */
+  geometry: Array<[number, number]>;
+  distanceKm: number;
+  createdAt: string;
+}
+
+export interface SavedSegmentCreateRequest {
+  name: string;
+  geometry: Array<[number, number]>;
 }

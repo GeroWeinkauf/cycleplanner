@@ -107,8 +107,10 @@ describe('App', () => {
   it('renders the POI toggles', () => {
     render(<App />);
     fireEvent.click(screen.getByText('Ebenen'));
-    expect(screen.getByText('Supermärkte')).toBeDefined();
-    expect(screen.getByText('Badeseen')).toBeDefined();
+    expect(screen.getByText(/Supermärkte/)).toBeDefined();
+    expect(screen.getByText(/Badeseen/)).toBeDefined();
+    expect(screen.getAllByText(/Trinkwasser/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/Aussichtspunkte/).length).toBeGreaterThan(0);
   });
 
   it('renders the ride settings panel', () => {

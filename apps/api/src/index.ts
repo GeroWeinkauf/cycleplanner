@@ -18,6 +18,13 @@ import type {
   CandidatesResponse,
   PoiQueryResponse,
   PoiCategory,
+  WeatherRouteRequest,
+  WeatherWindowsRequest,
+  WeatherWindowsResponse,
+  WindOptimizedRoute,
+  WindOptimizedRouteRequest,
+  SavedSegment,
+  SavedSegmentCreateRequest,
 } from '@cycleplanner/shared';
 import { computeElevationProfile } from './elevation/elevation-service.js';
 import { analyzeRoute } from './analysis/analysis-service.js';
@@ -26,6 +33,16 @@ import { generateCandidates } from './analysis/candidates-service.js';
 import { queryPois } from './poi/poi-service.js';
 import { runAiAgent } from './ai/ai-agent.js';
 import { findGooglePlace, fetchGooglePhoto } from './poi/google-places.js';
+import {
+  getRouteWeatherReport,
+  getStartWindows,
+  sampleRoute,
+  fetchWeatherGrid,
+  evaluateRouteOnGrid,
+  haversineKm,
+} from './weather/weather-service.js';
+import { db } from './db.js';
+import { parseGeometry } from './elevation/elevation-service.js';
 import type { GooglePlaceDetails } from './poi/google-places.js';
 import {
   listPresets,
@@ -1222,6 +1239,181 @@ export function buildApp() {
     },
   );
 
+  // ── Weather along the route (Open-Meteo) ──────
+  app.post<{ Body: WeatherRouteRequest }>(
+    '/api/weather/route',
+    async (req, reply) => {
+      const report = await getRouteWeatherReport(
+        req.body.route ?? [],
+        req.body.startTimeIso,
+        req.body.avgSpeedKmh,
+      );
+      if (!report) {
+        return reply.status(502).send({ error: 'Weather unavailable' });
+      }
+      return reply.send(report);
+    },
+  );
+
+  // ── Departure window optimization ─────────────
+  app.post<{ Body: WeatherWindowsRequest; Reply: WeatherWindowsResponse }>(
+    '/api/weather/windows',
+    async (req, reply) => {
+      const windows = await getStartWindows(
+        req.body.route ?? [],
+        req.body.avgSpeedKmh,
+        req.body.horizonHours,
+      );
+      return reply.send({ windows: windows.slice(0, 6) });
+    },
+  );
+
+  // ── Wind-optimized route (candidate re-ranking) ──
+  app.post<{ Body: WindOptimizedRouteRequest; Reply: WindOptimizedRoute | { error: string } }>(
+    '/api/route/wind-optimized',
+    async (req, reply) => {
+      const { waypoints, profile, costingOverrides, exclusionFlags } = req.body;
+      if (!waypoints || waypoints.length < 2) {
+        return reply.status(400).send({ error: 'At least 2 waypoints required' });
+      }
+      try {
+        const { candidates } = await generateCandidates(
+          waypoints,
+          profile,
+          costingOverrides ?? {},
+          exclusionFlags ?? {},
+        );
+        if (candidates.length === 0) {
+          return reply.status(502).send({ error: 'No route candidates found' });
+        }
+
+        // Weather grid from the base candidate geometry (shared corridor)
+        const base = candidates[0];
+        const baseCoords = parseGeometry(base.geometry);
+        const startMs = req.body.startTimeIso ? Date.parse(req.body.startTimeIso) : Date.now();
+        const speed = req.body.avgSpeedKmh ?? 18;
+        const totalKm = sampleRoute(baseCoords, 120).at(-1)?.distKm ?? 0;
+        const durationMs = (totalKm / Math.max(speed, 5)) * 3600 * 1000;
+        const startIso = isNaN(startMs) ? undefined : new Date(startMs).toISOString();
+
+        // Evaluate wind per candidate against the shared grid (one fetch round)
+        let windByCandidate: Array<{ avgHeadwindKmh: number; avgTailwindKmh: number } | null> =
+          candidates.map(() => null);
+        try {
+          const grid = await fetchWeatherGrid(baseCoords, startMs, durationMs);
+          for (let i = 0; i < candidates.length; i++) {
+            const coords = parseGeometry(candidates[i].geometry);
+            const evaluated = evaluateRouteOnGrid(coords, startMs, speed, grid);
+            if (evaluated) {
+              windByCandidate[i] = {
+                avgHeadwindKmh: evaluated.summary.avgHeadwindKmh,
+                avgTailwindKmh: evaluated.summary.avgTailwindKmh,
+              };
+            }
+          }
+        } catch {
+          // Wind unavailable — fall back to plain quality ranking
+        }
+
+        // Combined ranking: 70 % quality, 30 % wind comfort
+        const ranked = candidates
+          .map((c, i) => {
+            const wind = windByCandidate[i];
+            const windScore = wind
+              ? Math.max(0, Math.min(100, 50 + (wind.avgTailwindKmh - wind.avgHeadwindKmh) * 2))
+              : 50;
+            const combined = Math.round(c.score.total * 0.7 + windScore * 0.3);
+            return { candidate: c, wind, combined };
+          })
+          .sort((a, b) => b.combined - a.combined);
+
+        const best = ranked[0];
+        return reply.send({
+          geometry: best.candidate.geometry,
+          summary: {
+            distanceKm: best.candidate.summary.distanceKm,
+            durationMin: best.candidate.summary.durationMin,
+            ascentM: best.candidate.summary.ascentM,
+            descentM: best.candidate.summary.descentM,
+          },
+          wind: best.wind
+            ? {
+                avgHeadwindKmh: best.wind.avgHeadwindKmh,
+                avgTailwindKmh: best.wind.avgTailwindKmh,
+                maxPrecipProbPct: 0,
+                avgTempC: 0,
+                avgWindKmh: 0,
+                stormRisk: false,
+              }
+            : null,
+          alternatives: ranked.slice(0, 4).map((r) => ({
+            distanceKm: r.candidate.summary.distanceKm,
+            durationMin: r.candidate.summary.durationMin,
+            avgHeadwindKmh: r.wind?.avgHeadwindKmh ?? 0,
+            avgTailwindKmh: r.wind?.avgTailwindKmh ?? 0,
+            qualityScore: Math.round(r.candidate.score.total),
+            source: r.candidate.source,
+          })),
+        });
+      } catch (err) {
+        req.log.error({ err }, 'Wind-optimized route failed');
+        return reply.status(500).send({ error: 'Wind optimization failed' });
+      }
+    },
+  );
+
+  // ── Segment library (saved favorite route parts) ──
+  app.get<{ Reply: { segments: SavedSegment[] } }>(
+    '/api/segments',
+    async (_req, reply) => {
+      const rows = db.all<{ id: number; name: string; geometry: string; distance_km: number; created_at: string }>(
+        'SELECT id, name, geometry, distance_km, created_at FROM segments ORDER BY created_at DESC',
+      );
+      const segments: SavedSegment[] = rows.map((r) => ({
+        id: r.id,
+        name: r.name,
+        geometry: safeParseGeometry(r.geometry),
+        distanceKm: Math.round(r.distance_km * 10) / 10,
+        createdAt: r.created_at,
+      }));
+      return reply.send({ segments });
+    },
+  );
+
+  app.post<{ Body: SavedSegmentCreateRequest; Reply: SavedSegment | { error: string } }>(
+    '/api/segments',
+    async (req, reply) => {
+      const { name, geometry } = req.body;
+      if (!name || !geometry || geometry.length < 2) {
+        return reply.status(400).send({ error: 'Name and geometry (>= 2 points) required' });
+      }
+      let distanceKm = 0;
+      for (let i = 1; i < geometry.length; i++) {
+        distanceKm += haversineKm(geometry[i - 1], geometry[i]);
+      }
+      const now = new Date().toISOString();
+      const result = db.run(
+        'INSERT INTO segments (name, geometry, distance_km, created_at) VALUES (?, ?, ?, ?)',
+        [name, JSON.stringify(geometry), Math.round(distanceKm * 10) / 10, now],
+      );
+      return reply.status(201).send({
+        id: Number(result.lastInsertRowid),
+        name,
+        geometry,
+        distanceKm: Math.round(distanceKm * 10) / 10,
+        createdAt: now,
+      });
+    },
+  );
+
+  app.delete<{ Params: { id: string }; Reply: { ok: boolean } }>(
+    '/api/segments/:id',
+    async (req, reply) => {
+      db.run('DELETE FROM segments WHERE id = ?', [Number(req.params.id)]);
+      return reply.send({ ok: true });
+    },
+  );
+
   // ── AI Tour Planning (P6-1) ──────────────────────
   app.post<{
     Body: { query: string };
@@ -1304,4 +1496,15 @@ function escapeXml(str: string): string {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&apos;');
+}
+
+/** Parse a stored geometry JSON string, falling back to an empty array */
+function safeParseGeometry(raw: string): Array<[number, number]> {
+  try {
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed) && parsed.length > 0) {
+      return parsed as Array<[number, number]>;
+    }
+  } catch { /* ignore */ }
+  return [];
 }

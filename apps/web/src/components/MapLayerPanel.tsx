@@ -3,18 +3,27 @@ import { LAYERS } from '../layers/registry';
 import { LAYER_GROUPS } from '../layers/types';
 import { BASEMAPS } from '../layers/basemaps';
 import { useWaypointStore } from '../store/useWaypointStore';
+import type { SavedSegment } from '@cycleplanner/shared';
 
 interface Props {
   activeLayers: Set<string>;
   onToggleLayer: (layerId: string) => void;
   basemapId: string;
   onBasemapChange: (basemapId: string) => void;
-  poiEnabled: Record<'supermarket' | 'lake', boolean>;
-  onTogglePoi: (category: 'supermarket' | 'lake') => void;
+  /** POI marker toggles: category key -> enabled */
+  poiEnabled: Record<string, boolean>;
+  onTogglePoi: (category: string) => void;
+  /** POI toggle display options (from App) */
+  poiOptions: Array<{ key: string; label: string; icon: string; hint: string }>;
+  segments: SavedSegment[];
+  onAppendSegment: (segment: SavedSegment) => void;
+  onDeleteSegment: (segment: SavedSegment) => void;
 }
 
 export default function MapLayerPanel({
-  activeLayers, onToggleLayer, basemapId, onBasemapChange, poiEnabled, onTogglePoi,
+  activeLayers, onToggleLayer, basemapId, onBasemapChange,
+  poiEnabled, onTogglePoi, poiOptions,
+  segments, onAppendSegment, onDeleteSegment,
 }: Props) {
   const [open, setOpen] = useState(false);
   const importedTracks = useWaypointStore((s) => s.importedTracks);
@@ -121,21 +130,52 @@ export default function MapLayerPanel({
           {/* POI markers */}
           <div className="mt-1.5 border-t border-gray-100 pt-1.5">
             <div className="text-[10px] font-semibold text-gray-400 px-1 mb-0.5">POIs</div>
-            <label className="flex cursor-pointer items-start gap-2 rounded px-1 py-1 hover:bg-gray-50 text-[11px]">
-              <input type="checkbox" checked={poiEnabled.supermarket} onChange={() => onTogglePoi('supermarket')} className="mt-0.5 h-3 w-3 shrink-0 accent-blue-600" />
-              <span className="min-w-0">
-                <span className="block text-gray-700">Supermärkte</span>
-                <span className="block text-[9px] leading-tight text-gray-400">🛒 Läden in der Nähe (ab ~500 m Maßstab)</span>
-              </span>
-            </label>
-            <label className="flex cursor-pointer items-start gap-2 rounded px-1 py-1 hover:bg-gray-50 text-[11px]">
-              <input type="checkbox" checked={poiEnabled.lake} onChange={() => onTogglePoi('lake')} className="mt-0.5 h-3 w-3 shrink-0 accent-blue-600" />
-              <span className="min-w-0">
-                <span className="block text-gray-700">Badeseen</span>
-                <span className="block text-[9px] leading-tight text-gray-400">🏊 Größere Seen mit Google-Infos &amp; Fotos</span>
-              </span>
-            </label>
+            {poiOptions.map(opt => (
+              <label key={opt.key} className="flex cursor-pointer items-start gap-2 rounded px-1 py-1 hover:bg-gray-50 text-[11px]">
+                <input
+                  type="checkbox"
+                  checked={!!poiEnabled[opt.key]}
+                  onChange={() => onTogglePoi(opt.key)}
+                  className="mt-0.5 h-3 w-3 shrink-0 accent-blue-600"
+                />
+                <span className="min-w-0">
+                  <span className="block text-gray-700">{opt.icon} {opt.label}</span>
+                  <span className="block text-[9px] leading-tight text-gray-400">{opt.hint}</span>
+                </span>
+              </label>
+            ))}
           </div>
+
+          {/* Segment library */}
+          {segments.length > 0 && (
+            <div className="mt-1.5 border-t border-gray-100 pt-1.5">
+              <div className="text-[10px] font-semibold text-gray-400 px-1 mb-0.5">Lieblingssegmente</div>
+              {segments.map((seg) => (
+                <div key={seg.id} className="flex items-center gap-1 rounded px-1 py-0.5 hover:bg-gray-50">
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-[10px] text-gray-700" title={seg.name}>☆ {seg.name}</span>
+                    <span className="block text-[9px] text-gray-400">{seg.distanceKm.toFixed(1)} km</span>
+                  </span>
+                  <button
+                    onClick={() => onAppendSegment(seg)}
+                    className="shrink-0 text-[9px] text-blue-600 hover:underline"
+                    title="Segment an die Route anhängen"
+                  >
+                    ↳ Anhängen
+                  </button>
+                  <button
+                    onClick={() => onDeleteSegment(seg)}
+                    className="shrink-0 text-gray-400 hover:text-red-500 p-0.5"
+                    title="Segment löschen"
+                  >
+                    <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
 
           {/* Imported tracks section */}
           {trackNames.length > 0 && (

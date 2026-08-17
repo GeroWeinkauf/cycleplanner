@@ -1,13 +1,18 @@
 import type { RouteResponse, ElevationProfile, RouteAnalysis } from '@cycleplanner/shared';
 import { useRideStore } from '../store/useRideStore';
+import { computeSafety } from '../lib/safety';
 
 interface Props {
   route?: RouteResponse | null;
   elevation?: ElevationProfile;
   analysis?: RouteAnalysis;
+  /** Wind along the route (from the weather report or wind-optimized route) */
+  wind?: { avgHeadwindKmh: number; avgTailwindKmh: number } | null;
+  /** True when the displayed route is wind-optimized */
+  windOptimized?: boolean;
 }
 
-export default function RouteSummary({ route, elevation, analysis }: Props) {
+export default function RouteSummary({ route, elevation, analysis, wind, windOptimized }: Props) {
   const avgSpeedKmh = useRideStore((s) => s.avgSpeedKmh);
 
   if (!route) {
@@ -32,6 +37,12 @@ export default function RouteSummary({ route, elevation, analysis }: Props) {
   const estRest = Math.round(estMin % 60);
   const estTime = estHours > 0 ? `${estHours} h ${estRest} min` : `${estRest} min`;
 
+  // Safety score
+  const safety = analysis ? computeSafety(analysis) : null;
+  const safetyColor = safety
+    ? safety.level === 'good' ? 'text-green-600' : safety.level === 'moderate' ? 'text-amber-600' : 'text-red-600'
+    : '';
+
   return (
     <div className="border-t border-gray-200 px-3 py-2">
       <div className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-2">
@@ -54,6 +65,47 @@ export default function RouteSummary({ route, elevation, analysis }: Props) {
       <div className="mb-2 rounded bg-indigo-50 px-2 py-1.5 text-[11px] text-indigo-700">
         Fahrzeit bei Ø {avgSpeedKmh} km/h: <span className="font-semibold">{estTime}</span>
       </div>
+
+      {/* Wind */}
+      {wind && (wind.avgHeadwindKmh > 0 || wind.avgTailwindKmh > 0) && (
+        <div className="mb-2 flex items-center gap-2 rounded bg-sky-50 px-2 py-1.5 text-[11px] text-sky-800">
+          {windOptimized && <span title="Wind-optimierte Route">🌬</span>}
+          {wind.avgTailwindKmh >= 1 && (
+            <span className="text-green-600">↗ Rückenwind Ø {wind.avgTailwindKmh} km/h</span>
+          )}
+          {wind.avgHeadwindKmh >= 1 && (
+            <span className="text-red-500">↖ Gegenwind Ø {wind.avgHeadwindKmh} km/h</span>
+          )}
+        </div>
+      )}
+
+      {/* Safety score */}
+      {safety && (
+        <div className="mb-2 rounded bg-gray-50 px-2 py-1.5 border border-gray-100">
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] font-medium text-gray-600">Sicherheit</span>
+            <span className={'text-sm font-bold ' + safetyColor}>
+              {safety.score}<span className="text-[10px] text-gray-400">/100</span>
+            </span>
+          </div>
+          <div className="mt-1 flex h-2 w-full overflow-hidden rounded-full bg-gray-200">
+            <div className="h-full bg-green-500" style={{ width: safety.carFreePct + '%' }} title={safety.carFreePct + ' % autofrei'} />
+            <div className="h-full bg-red-400" style={{ width: safety.busyRoadPct + '%' }} title={safety.busyRoadPct + ' % stark befahren'} />
+          </div>
+          <div className="mt-1 flex flex-wrap gap-x-2 text-[9px] text-gray-500">
+            <span><span className="inline-block h-1.5 w-1.5 rounded-full bg-green-500 mr-0.5" />autofrei {safety.carFreePct}%</span>
+            <span><span className="inline-block h-1.5 w-1.5 rounded-full bg-red-400 mr-0.5" />stark befahren {safety.busyRoadPct}%</span>
+            {safety.bikeNetworkPct > 0 && (
+              <span>Radrouten {safety.bikeNetworkPct}%</span>
+            )}
+          </div>
+          {safety.tips.length > 0 && (
+            <ul className="mt-1 space-y-0.5 text-[9px] leading-tight text-gray-500">
+              {safety.tips.slice(0, 2).map((tip, i) => <li key={i}>• {tip}</li>)}
+            </ul>
+          )}
+        </div>
+      )}
 
       {/* Elevation */}
       {elevation?.metrics && (

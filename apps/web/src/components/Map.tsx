@@ -22,6 +22,7 @@ import { LAYERS } from '../layers/registry';
 import { DEFAULT_BASEMAP_ID, expandTileUrls, getBasemap } from '../layers/basemaps';
 import type { RasterTileConfig } from '../layers/types';
 import type { RouteResponse, Poi } from '@cycleplanner/shared';
+import { POI_CATEGORIES } from '@cycleplanner/shared';
 
 interface MapProps {
   route?: RouteResponse | null;
@@ -34,6 +35,8 @@ interface MapProps {
   poiMarkers?: Poi[];
   /** Optional ride start time — the rain radar shows the frame closest to it */
   weatherStartTimeMs?: number | null;
+  /** Wind per route segment (for the wind overlay under the route line) */
+  weatherSegments?: Array<{ fromKm: number; toKm: number; headwindKmh: number }> | null;
   onMapFlyTo?: (fn: (lng: number, lat: number) => void) => void;
   onMapFitBounds?: (
     fn: (
@@ -129,9 +132,33 @@ function addRasterSource(map: MlMap, id: string, cfg: RasterTileConfig) {
   });
 }
 
+/** Marker style per POI category (icon comes from POI_CATEGORIES metadata) */
+const POI_MARKER_STYLES: Record<string, { bg: string; radius?: string; title: string }> = {
+  supermarket: { bg: '#22c55e', title: 'Supermarkt' },
+  lake: { bg: '#0ea5e9', radius: '50%', title: 'Badesee' },
+  water: { bg: '#0284c7', radius: '50%', title: 'Trinkwasser' },
+  toilets: { bg: '#64748b', title: 'WC' },
+  bench: { bg: '#b45309', title: 'Bank' },
+  picnic: { bg: '#65a30d', title: 'Picknickplatz' },
+  bikeShop: { bg: '#7c3aed', title: 'Fahrradladen' },
+  bikeRepair: { bg: '#7c3aed', title: 'Reparaturstation' },
+  campsite: { bg: '#16a34a', title: 'Campingplatz' },
+  trainStation: { bg: '#dc2626', title: 'Bahnhof' },
+  viewpoint: { bg: '#d97706', title: 'Aussichtspunkt' },
+};
+
+/** Color for the wind overlay: red = headwind, green = tailwind, amber = neutral */
+function windColor(headwindKmh: number): string {
+  if (headwindKmh > 10) return '#dc2626';
+  if (headwindKmh > 3) return '#f97316';
+  if (headwindKmh < -10) return '#16a34a';
+  if (headwindKmh < -3) return '#84cc16';
+  return '#eab308';
+}
+
 export default function MapView(props: MapProps) {
   const { route, routeB, showRoute, isFetching, highlightDistance, activeLayers, basemapId,
-    poiMarkers, weatherStartTimeMs, onMapFlyTo, onBboxChange, onScaleChange, onPoiRightClick, onPoiClick } = props;
+    poiMarkers, weatherStartTimeMs, weatherSegments, onMapFlyTo, onBboxChange, onScaleChange, onPoiRightClick, onPoiClick } = props;
   const { onMapFitBounds } = props;
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<MlMap | null>(null);
@@ -460,21 +487,20 @@ export default function MapView(props: MapProps) {
     if (!poiMarkers || poiMarkers.length === 0) return;
 
     for (const poi of poiMarkers) {
-      const isLake = poi.category === 'lake';
+      const meta = POI_CATEGORIES.find((c) => c.key === poi.category);
+      const style = POI_MARKER_STYLES[poi.category] ?? { bg: '#22c55e', title: poi.category };
+      const icon = meta?.icon ?? '📍';
       const el = document.createElement('div');
       el.className = 'poi-marker';
       el.style.cursor = 'pointer';
       el.style.pointerEvents = 'auto';
-      const icon = isLake ? '🏊' : '🛒';
-      const bg = isLake ? '#0ea5e9' : '#22c55e';
-      const radius = isLake ? '50%' : '6px';
       el.innerHTML = `<div style="
-        width:28px;height:28px;background:${bg};border:2px solid white;
-        border-radius:${radius};display:flex;align-items:center;justify-content:center;
-        font-size:16px;box-shadow:0 2px 6px rgba(0,0,0,0.5);">
+        width:26px;height:26px;background:${style.bg};border:2px solid white;
+        border-radius:${style.radius ?? '6px'};display:flex;align-items:center;justify-content:center;
+        font-size:14px;box-shadow:0 2px 6px rgba(0,0,0,0.5);">
         ${icon}
       </div>`;
-      el.title = poi.name || (isLake ? 'Badesee' : 'Supermarkt');
+      el.title = poi.name || style.title;
 
       const marker = new Marker({ element: el, anchor: 'center' })
         .setLngLat([poi.lng, poi.lat])
@@ -584,6 +610,53 @@ export default function MapView(props: MapProps) {
 
     map.fitBounds(boundsOf(coords), { padding: 40, maxZoom: 15 });
   }, [route, showRoute]);
+
+  // ── Wind overlay (colored underlay: green = tailwind, red = headwind) ──
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+
+    const srcId = 'route-wind';
+    const lyrId = 'route-wind';
+
+    if (!weatherSegments || weatherSegments.length === 0 || !route?.geometry) {
+      if (map.getLayer(lyrId)) map.removeLayer(lyrId);
+      if (map.getSource(srcId)) map.removeSource(srcId);
+      return;
+    }
+
+    const coords = routeCoordsRef.current;
+    const totalKm = route.summary.distanceKm;
+    if (coords.length < 2 || totalKm <= 0) return;
+
+    const features = weatherSegments.map((seg) => {
+      const fromIdx = Math.max(0, Math.min(coords.length - 1, Math.round((seg.fromKm / totalKm) * (coords.length - 1))));
+      const toIdx = Math.max(fromIdx + 1, Math.min(coords.length - 1, Math.round((seg.toKm / totalKm) * (coords.length - 1))));
+      return {
+        type: 'Feature' as const,
+        properties: { color: windColor(seg.headwindKmh) },
+        geometry: { type: 'LineString' as const, coordinates: coords.slice(fromIdx, toIdx + 1) },
+      };
+    });
+
+    const fc: FeatureCollection = { type: 'FeatureCollection', features };
+    if (map.getSource(srcId)) {
+      (map.getSource(srcId) as GeoJSONSource).setData(fc);
+    } else {
+      map.addSource(srcId, { type: 'geojson', data: fc });
+      map.addLayer({
+        id: lyrId,
+        type: 'line',
+        source: srcId,
+        layout: { 'line-cap': 'round', 'line-join': 'round' },
+        paint: {
+          'line-color': ['get', 'color'],
+          'line-width': 7,
+          'line-opacity': 0.45,
+        },
+      }, map.getLayer('route-line') ? 'route-line' : undefined);
+    }
+  }, [weatherSegments, route]);
 
   // ── Imported GPX tracks ───────────────────
   useEffect(() => {

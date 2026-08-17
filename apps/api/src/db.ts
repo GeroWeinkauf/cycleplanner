@@ -304,6 +304,17 @@ db.exec(`
   )
 `);
 
+// Saved favorite route segments (segment library)
+db.exec(`
+  CREATE TABLE IF NOT EXISTS segments (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    geometry TEXT NOT NULL,
+    distance_km REAL NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL
+  )
+`);
+
 // Seed built-in presets if empty
 const count = db.get<{ cnt: number }>('SELECT COUNT(*) as cnt FROM tuning_presets');
 if (count && count.cnt === 0) {

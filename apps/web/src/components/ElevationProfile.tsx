@@ -17,6 +17,10 @@ interface Props {
   onReset?: () => void;
   /** Called with the selected [fromKm, toKm] after a drag-zoom gesture */
   onZoomToSegment?: (fromKm: number, toKm: number) => void;
+  /** Weather risk per segment (0 = ok, 1 = Achtung, 2 = kritisch) */
+  weatherRisk?: Array<{ fromKm: number; toKm: number; level: 0 | 1 | 2 }> | null;
+  /** Save the currently zoomed section as a favorite segment */
+  onSaveSegment?: (fromKm: number, toKm: number, name: string) => void;
   /** Kept for API compatibility – the cursor line is now tracked locally (pixel-exact). */
   highlightDistance?: number | null;
 }
@@ -116,6 +120,7 @@ function formatSlope(percent: number): string {
 
 export default function ElevationProfile({
   data, surfaceData, isLoading, onHover, onClick, onReset, onZoomToSegment,
+  weatherRisk, onSaveSegment,
 }: Props) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const svgRef = useRef<SVGSVGElement>(null);
@@ -124,6 +129,8 @@ export default function ElevationProfile({
   const [dragStart, setDragStart] = useState<number | null>(null);
   const [dragEnd, setDragEnd] = useState<number | null>(null);
   const [hoverX, setHoverX] = useState<number | null>(null);
+  const [saveOpen, setSaveOpen] = useState(false);
+  const [saveName, setSaveName] = useState('');
 
   // Zoom stack of [fromKm, toKm] windows. Only the topmost window is applied;
   // every new window is a subset of the previous one, so cumulative filtering
@@ -160,6 +167,9 @@ export default function ElevationProfile({
   const innerW = Math.max(width - PADDING.left - PADDING.right, 0);
   const innerH = CHART_HEIGHT - PADDING.top - PADDING.bottom;
 
+  // Current zoom window (top of the stack), used for filtering and segment saving
+  const currentZoom = zoomStack.length > 0 ? zoomStack[zoomStack.length - 1] : null;
+
   // ── Visible points (after zoom filtering) ──
   const visible = useMemo(() => {
     if (!data || data.points.length === 0) {
@@ -167,7 +177,6 @@ export default function ElevationProfile({
     }
     let pts = data.points;
     let zoomLabel = '';
-    const currentZoom = zoomStack.length > 0 ? zoomStack[zoomStack.length - 1] : null;
     if (currentZoom) {
       const [fromDist, toDist] = currentZoom;
       const filtered = pts.filter(
@@ -182,7 +191,7 @@ export default function ElevationProfile({
     const distMax = pts[pts.length - 1].distanceKm;
     const distRange = distMax - distMin || 1;
     return { points: pts, distMin, distMax, distRange, zoomLabel };
-  }, [data, zoomStack]);
+  }, [data, zoomStack, currentZoom]);
 
   // ── Mouse helpers ─────────────────────────
   const svgXFromClient = useCallback((clientX: number): number | null => {
@@ -374,8 +383,55 @@ export default function ElevationProfile({
       </div>
 
       {zoomed && visible.zoomLabel && (
-        <div className="px-3 pb-1 text-[10px] font-medium text-blue-600">
-          Zoom: {visible.zoomLabel} · ↔ weiter zoomen möglich
+        <div className="flex flex-wrap items-center gap-2 px-3 pb-1 text-[10px] font-medium text-blue-600">
+          <span>Zoom: {visible.zoomLabel} · ↔ weiter zoomen möglich</span>
+          {onSaveSegment && !saveOpen && (
+            <button
+              onClick={() => { setSaveOpen(true); setSaveName(''); }}
+              className="rounded bg-indigo-50 px-1.5 py-0.5 text-indigo-600 hover:bg-indigo-100"
+              title="Diesen Abschnitt als Lieblingssegment speichern"
+            >
+              ☆ Segment speichern
+            </button>
+          )}
+          {saveOpen && (
+            <span className="flex items-center gap-1">
+              <input
+                value={saveName}
+                onChange={(e) => setSaveName(e.target.value)}
+                placeholder="Name des Segments"
+                autoFocus
+                className="w-32 rounded border border-gray-300 px-1 py-0.5 text-[10px] text-gray-800 focus:border-blue-500 focus:outline-none"
+              />
+              <button
+                onClick={() => {
+                  if (saveName.trim() && currentZoom) {
+                    onSaveSegment?.(currentZoom[0], currentZoom[1], saveName.trim());
+                  }
+                  setSaveOpen(false);
+                }}
+                className="rounded bg-indigo-600 px-1.5 py-0.5 text-white hover:bg-indigo-700"
+              >
+                ✓
+              </button>
+              <button
+                onClick={() => setSaveOpen(false)}
+                className="rounded bg-gray-100 px-1.5 py-0.5 text-gray-600 hover:bg-gray-200"
+              >
+                ✕
+              </button>
+            </span>
+          )}
+        </div>
+      )}
+
+      {/* Weather risk legend */}
+      {weatherRisk && weatherRisk.length > 0 && (
+        <div className="flex items-center gap-2 px-3 pb-1 text-[9px] text-gray-500">
+          <span>Regenrisiko je Etappe:</span>
+          <span className="flex items-center gap-0.5"><span className="inline-block h-2 w-2 rounded-sm bg-green-500" /> ok</span>
+          <span className="flex items-center gap-0.5"><span className="inline-block h-2 w-2 rounded-sm bg-yellow-500" /> Regen möglich</span>
+          <span className="flex items-center gap-0.5"><span className="inline-block h-2 w-2 rounded-sm bg-red-500" /> Regen/Gewitter</span>
         </div>
       )}
 
@@ -433,6 +489,22 @@ export default function ElevationProfile({
       >
         {width > 80 && (
           <g>
+            {/* Weather risk strip (rain per segment, follows the zoom window) */}
+            {weatherRisk && weatherRisk.length > 0 && (
+              <g>
+                {weatherRisk.map((w, i) => {
+                  const x1 = Math.max(toX(w.fromKm), PADDING.left);
+                  const x2 = Math.min(toX(w.toKm), PADDING.left + innerW);
+                  if (x2 <= x1) return null;
+                  const color = w.level === 2 ? '#ef4444' : w.level === 1 ? '#eab308' : '#22c55e';
+                  return (
+                    <rect key={'wr-' + i} x={x1} y={0} width={x2 - x1} height={7}
+                      fill={color} opacity={0.85} />
+                  );
+                })}
+              </g>
+            )}
+
             <path d={areaD} fill="rgba(37, 99, 235, 0.08)" stroke="none" />
 
             {segments.map((seg, i) => (
