@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useCallback } from 'react';
 import {
   Map as MlMap,
   Marker,
@@ -132,20 +132,6 @@ function addRasterSource(map: MlMap, id: string, cfg: RasterTileConfig) {
   });
 }
 
-/**
- * MapLibre throws "Style is not done loading" for any style-dependent
- * call (addSource/addLayer/getLayer/...) before the style has loaded.
- * This helper runs the callback immediately when loaded, otherwise
- * defers it to the map's `load` event.
- */
-function whenStyleReady(map: MlMap, fn: () => void): void {
-  if (map.isStyleLoaded()) {
-    fn();
-  } else {
-    map.once('load', fn);
-  }
-}
-
 /** Marker style per POI category (icon comes from POI_CATEGORIES metadata) */
 const POI_MARKER_STYLES: Record<string, { bg: string; radius?: string; title: string }> = {
   supermarket: { bg: '#22c55e', title: 'Supermarkt' },
@@ -180,9 +166,27 @@ export default function MapView(props: MapProps) {
   const supermarketMarkersRef = useRef<Marker[]>([]);
   const routeCoordsRef = useRef<Array<[number, number]>>([]);
   const geoJsonCacheRef = useRef<Record<string, FeatureCollection>>({});
+  /** True once the current map's style has loaded (reset on unmount/remount) */
+  const styleLoadedRef = useRef(false);
+  /** Style-dependent operations queued until the map style is loaded */
+  const pendingStyleOpsRef = useRef<Array<() => void>>([]);
 
   const { waypoints, addWaypoint, moveWaypoint, removeWaypoint, blockedSegment, setBlockedSegment, importedTracks } = useWaypointStore();
   const showTracks = activeLayers?.has('tracks');
+
+  /**
+   * MapLibre throws "Style is not done loading" for any style-dependent
+   * call (addSource/addLayer/getLayer/...) before the style has loaded.
+   * Style ops are queued and flushed exactly once when the current map
+   * fires `load` — robust against React StrictMode's double mount.
+   */
+  const whenStyleReady = useCallback((map: MlMap, fn: () => void) => {
+    if (styleLoadedRef.current && mapRef.current === map) {
+      fn();
+      return;
+    }
+    pendingStyleOpsRef.current.push(fn);
+  }, []);
 
   // ── Init map ──────────────────────────────
   useEffect(() => {
@@ -190,7 +194,14 @@ export default function MapView(props: MapProps) {
 
     const map = new MlMap({
       container: containerRef.current,
-      style: { version: 8, sources: {}, layers: [] },
+      style: {
+        version: 8,
+        sources: {},
+        layers: [
+          // neutral background while the basemap is added after style load
+          { id: 'background', type: 'background', paint: { 'background-color': '#e5e7eb' } },
+        ],
+      },
       center: [12.3731, 51.3397],
       zoom: 12,
       attributionControl: false,
@@ -262,8 +273,21 @@ export default function MapView(props: MapProps) {
     });
 
     mapRef.current = map;
+    styleLoadedRef.current = false;
+    pendingStyleOpsRef.current = [];
+
+    // Flush all queued style operations exactly once when the style is ready.
+    // Registered right after map creation — safe even if 'load' fires early.
+    map.once('load', () => {
+      styleLoadedRef.current = true;
+      const ops = pendingStyleOpsRef.current;
+      pendingStyleOpsRef.current = [];
+      for (const op of ops) op();
+    });
 
     return () => {
+      styleLoadedRef.current = false;
+      pendingStyleOpsRef.current = [];
       map.remove();
       mapRef.current = null;
     };
@@ -276,6 +300,9 @@ export default function MapView(props: MapProps) {
     if (!map) return;
     const bm = getBasemap(basemapId ?? DEFAULT_BASEMAP_ID);
     whenStyleReady(map, () => {
+      // Remove layer first, then source (order-independent of MapLibre's
+      // removeSource-in-use behavior), then re-add and move to the bottom.
+      if (map.getLayer('basemap')) map.removeLayer('basemap');
       if (map.getSource('basemap')) map.removeSource('basemap');
       map.addSource('basemap', {
         type: 'raster',
@@ -283,9 +310,9 @@ export default function MapView(props: MapProps) {
         tileSize: bm.tileSize ?? 256,
         maxzoom: bm.maxZoom ?? 19,
       });
-      if (!map.getLayer('basemap')) {
-        map.addLayer({ id: 'basemap', type: 'raster', source: 'basemap' });
-      }
+      map.addLayer({ id: 'basemap', type: 'raster', source: 'basemap' });
+      const firstOther = map.getStyle().layers.find((l) => l.id !== 'basemap');
+      if (firstOther) map.moveLayer('basemap', firstOther.id);
     });
   }, [basemapId]);
 
