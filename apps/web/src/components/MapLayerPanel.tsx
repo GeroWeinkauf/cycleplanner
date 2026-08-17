@@ -18,12 +18,16 @@ interface Props {
   segments: SavedSegment[];
   onAppendSegment: (segment: SavedSegment) => void;
   onDeleteSegment: (segment: SavedSegment) => void;
+  /** true = Leaflet compatibility renderer (default), false = MapLibre 3D */
+  useLeaflet: boolean;
+  onToggleRenderer: () => void;
 }
 
 export default function MapLayerPanel({
   activeLayers, onToggleLayer, basemapId, onBasemapChange,
   poiEnabled, onTogglePoi, poiOptions,
   segments, onAppendSegment, onDeleteSegment,
+  useLeaflet, onToggleRenderer,
 }: Props) {
   const [open, setOpen] = useState(false);
   const importedTracks = useWaypointStore((s) => s.importedTracks);
@@ -100,6 +104,25 @@ export default function MapLayerPanel({
                 <span className="text-gray-700">{bm.label}</span>
               </label>
             ))}
+          </div>
+
+          {/* Renderer (3D mode opt-in) */}
+          <div className="mt-1.5 border-t border-gray-100 pt-1.5">
+            <div className="text-[10px] font-semibold text-gray-400 px-1 mb-0.5">Darstellung</div>
+            <label className="flex cursor-pointer items-start gap-2 rounded px-1 py-1 hover:bg-gray-50 text-[11px]">
+              <input
+                type="checkbox"
+                checked={!useLeaflet}
+                onChange={onToggleRenderer}
+                className="mt-0.5 h-3 w-3 shrink-0 accent-blue-600"
+              />
+              <span className="min-w-0">
+                <span className="block text-gray-700">3D-Modus (WebGL/MapLibre)</span>
+                <span className="block text-[9px] leading-tight text-gray-400">
+                  3D-Gelände, Regenradar &amp; Wind-Overlay. Nur wenn WebGL verfügbar ist — bei Problemen automatischer Rückfall.
+                </span>
+              </span>
+            </label>
           </div>
 
           {/* Overlay layers grouped thematically */}

@@ -3,7 +3,6 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import MapView from './components/Map';
 import LeafletMap from './components/LeafletMap';
 import type { MapViewProps } from './components/mapTypes';
-import { detectWebGLForMapLibre } from './lib/webgl';
 import MapLayerPanel from './components/MapLayerPanel';
 import { LAYERS } from './layers/registry';
 import { DEFAULT_BASEMAP_ID } from './layers/basemaps';
@@ -102,11 +101,12 @@ function AppInner() {
   const [windError, setWindError] = useState<string | null>(null);
   const [windowsEnabled, setWindowsEnabled] = useState(false);
 
-  // MapLibre GL needs WebGL; environments without it fall back to the
-  // Leaflet compatibility renderer (Canvas 2D, no WebGL required).
-  const [useLeaflet, setUseLeaflet] = useState<boolean>(() => !detectWebGLForMapLibre());
-  // Manual escape hatch: if the map area stays blank, the user can force
-  // the compatibility mode after a few seconds.
+  // Renderer: Leaflet compatibility mode is the default (Canvas 2D, works
+  // everywhere incl. software rendering). MapLibre GL (3D/WebGL) can be
+  // enabled in the layer panel; it falls back automatically on failure.
+  const [useLeaflet, setUseLeaflet] = useState<boolean>(true);
+  // Manual escape hatch: if the map area stays blank (3D mode), the user can
+  // force the compatibility mode after a few seconds.
   const [showFallbackHint, setShowFallbackHint] = useState(false);
   useEffect(() => {
     if (useLeaflet) {
@@ -116,6 +116,10 @@ function AppInner() {
     const t = window.setTimeout(() => setShowFallbackHint(true), 10000);
     return () => window.clearTimeout(t);
   }, [useLeaflet]);
+
+  const handleToggleRenderer = useCallback(() => {
+    setUseLeaflet((prev) => !prev);
+  }, []);
 
   const handleToggle = useCallback((layerId: string) => {
     setActiveLayers((prev) => {
@@ -468,6 +472,8 @@ function AppInner() {
             segments={segments}
             onAppendSegment={handleAppendSegment}
             onDeleteSegment={(seg) => void deleteSegment(seg.id)}
+            useLeaflet={useLeaflet}
+            onToggleRenderer={handleToggleRenderer}
           />
           <Attribution activeLayers={activeLayers} basemapId={basemapId} />
 
