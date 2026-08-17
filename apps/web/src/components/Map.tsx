@@ -181,12 +181,16 @@ export default function MapView(props: MapProps) {
    * fires `load` — robust against React StrictMode's double mount.
    */
   const whenStyleReady = useCallback((map: MlMap, fn: () => void) => {
-    if (styleLoadedRef.current && mapRef.current === map) {
+    if (mapRef.current !== map) {
+      // stale map instance (e.g. StrictMode's removed first mount) — drop
+      return;
+    }
+    if (styleLoadedRef.current) {
       fn();
       return;
     }
     // Style may already be loaded synchronously (e.g. inline style)
-    if (map.isStyleLoaded() && mapRef.current === map) {
+    if (map.isStyleLoaded()) {
       styleLoadedRef.current = true;
       fn();
       return;
@@ -330,6 +334,7 @@ export default function MapView(props: MapProps) {
         .getStyle()
         .layers.find((l) => l.id !== 'basemap' && l.id !== 'background');
       if (aboveId) map.moveLayer('basemap', aboveId.id);
+      console.info('[map] basemap ready:', bm.id);
     });
   }, [basemapId]);
 
