@@ -20,6 +20,7 @@ import { DEFAULT_BASEMAP_ID, expandTileUrls, getBasemap } from '../layers/basema
 import type { RasterTileConfig } from '../layers/types';
 import type { RouteResponse, Poi } from '@cycleplanner/shared';
 import { POI_CATEGORIES } from '@cycleplanner/shared';
+import type { MapViewProps } from './mapTypes';
 
 // Runtime values from the default namespace — works across MapLibre versions
 // (v6 named exports, v3 CJS/AMD interop where LngLatBounds lacks a named export).
@@ -32,30 +33,9 @@ const {
   LngLatBounds: LngLatBoundsCtor,
 } = maplibregl;
 
-interface MapProps {
-  route?: RouteResponse | null;
-  routeB?: RouteResponse | null;
-  showRoute?: boolean;
-  isFetching: boolean;
-  highlightDistance?: number | null;
-  activeLayers?: Set<string>;
-  basemapId?: string;
-  poiMarkers?: Poi[];
-  /** Optional ride start time — the rain radar shows the frame closest to it */
-  weatherStartTimeMs?: number | null;
-  /** Wind per route segment (for the wind overlay under the route line) */
-  weatherSegments?: Array<{ fromKm: number; toKm: number; headwindKmh: number }> | null;
-  onMapFlyTo?: (fn: (lng: number, lat: number) => void) => void;
-  onMapFitBounds?: (
-    fn: (
-      points: Array<{ lat: number; lng: number }>,
-      opts?: { padding?: [number, number]; maxZoom?: number; animate?: boolean },
-    ) => void,
-  ) => void;
-  onBboxChange?: (bbox: string) => void;
-  onScaleChange?: (scaleMeters: number) => void;
-  onPoiRightClick?: (poi: Poi) => void;
-  onPoiClick?: (poi: Poi) => void;
+interface MapProps extends MapViewProps {
+  /** Called when MapLibre cannot render (WebGL unavailable) — switch to Leaflet fallback */
+  onWebGLFallback?: () => void;
 }
 
 // Simplified Sachsen + Sachsen-Anhalt boundary
@@ -167,7 +147,7 @@ function windColor(headwindKmh: number): string {
 
 export default function MapView(props: MapProps) {
   const { route, routeB, showRoute, isFetching, highlightDistance, activeLayers, basemapId,
-    poiMarkers, weatherStartTimeMs, weatherSegments, onMapFlyTo, onBboxChange, onScaleChange, onPoiRightClick, onPoiClick } = props;
+    poiMarkers, weatherStartTimeMs, weatherSegments, onWebGLFallback, onMapFlyTo, onBboxChange, onScaleChange, onPoiRightClick, onPoiClick } = props;
   const { onMapFitBounds } = props;
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<MlMap | null>(null);
@@ -247,6 +227,47 @@ export default function MapView(props: MapProps) {
 
     map.addControl(new NavigationControl(), 'top-left');
     map.addControl(new ScaleControl({ maxWidth: 120 }), 'bottom-right');
+
+    // If WebGL is unavailable, MapLibre stays blank — hand over to the
+    // Leaflet compatibility renderer instead of showing an empty map.
+    const webglFailedRef = { failed: false };
+    const failToLeaflet = () => {
+      if (webglFailedRef.failed) return;
+      if (mapRef.current !== map) return; // stale map (StrictMode first mount)
+      webglFailedRef.failed = true;
+      console.warn('[map] WebGL-Rendering nicht verfügbar — wechsle zum Leaflet-Kompatibilitätsmodus');
+      onWebGLFallback?.();
+    };
+    map.on('webglcontextcreationerror', failToLeaflet);
+    map.on('error', (e) => {
+      const msg = (e?.error as Error | undefined)?.message ?? '';
+      if (/webgl/i.test(msg)) failToLeaflet();
+    });
+
+    // Render watchdog: a working map MUST fire 'render' shortly after
+    // 'load' (even just the background frame). If no frame renders within
+    // 8 s, WebGL rendering is broken in this environment (e.g. software
+    // rasterizer limits) — fall back to Leaflet so the app stays usable.
+    let renderedFrame = false;
+    map.once('render', () => { renderedFrame = true; });
+    map.once('load', () => {
+      const armWatchdog = () => {
+        window.setTimeout(() => {
+          if (!renderedFrame) failToLeaflet();
+        }, 8000);
+      };
+      if (document.visibilityState === 'visible') {
+        armWatchdog();
+      } else {
+        const onVis = () => {
+          if (document.visibilityState === 'visible') {
+            document.removeEventListener('visibilitychange', onVis);
+            armWatchdog();
+          }
+        };
+        document.addEventListener('visibilitychange', onVis);
+      }
+    });
 
     // Saxony boundary outline (style must be loaded first)
     whenStyleReady(map, () => {

@@ -1,6 +1,9 @@
 import { useState, useCallback, useEffect, useRef, useMemo } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import MapView from './components/Map';
+import LeafletMap from './components/LeafletMap';
+import type { MapViewProps } from './components/mapTypes';
+import { detectWebGLForMapLibre } from './lib/webgl';
 import MapLayerPanel from './components/MapLayerPanel';
 import { LAYERS } from './layers/registry';
 import { DEFAULT_BASEMAP_ID } from './layers/basemaps';
@@ -98,6 +101,10 @@ function AppInner() {
   const [windOptimizing, setWindOptimizing] = useState(false);
   const [windError, setWindError] = useState<string | null>(null);
   const [windowsEnabled, setWindowsEnabled] = useState(false);
+
+  // MapLibre GL needs WebGL; environments without it fall back to the
+  // Leaflet compatibility renderer (Canvas 2D, no WebGL required).
+  const [useLeaflet, setUseLeaflet] = useState<boolean>(() => !detectWebGLForMapLibre());
 
   const handleToggle = useCallback((layerId: string) => {
     setActiveLayers((prev) => {
@@ -386,23 +393,47 @@ function AppInner() {
 
         {/* ── Map area ─────────────────────────── */}
         <div className="relative flex-1">
-          <MapView
-            route={activeRoute}
-            showRoute={showRoute}
-            isFetching={isFetching}
-            highlightDistance={highlightDistance}
-            activeLayers={activeLayers}
-            basemapId={basemapId}
-            poiMarkers={poiMarkers}
-            weatherStartTimeMs={startTimeMs}
-            weatherSegments={weatherSegments}
-            onMapFlyTo={(fn) => { mapFlyToRef.current = fn; }}
-            onMapFitBounds={(fn) => { mapFitBoundsRef.current = fn; }}
-            onBboxChange={handleBboxChange}
-            onScaleChange={handleScaleChange}
-            onPoiClick={handlePoiClick}
-            onPoiRightClick={handlePoiClick}
-          />
+          {useLeaflet ? (
+            <LeafletMap
+              route={activeRoute}
+              showRoute={showRoute}
+              isFetching={isFetching}
+              highlightDistance={highlightDistance}
+              activeLayers={activeLayers}
+              basemapId={basemapId}
+              poiMarkers={poiMarkers}
+              onMapFlyTo={(fn) => { mapFlyToRef.current = fn; }}
+              onMapFitBounds={(fn) => { mapFitBoundsRef.current = fn; }}
+              onBboxChange={handleBboxChange}
+              onScaleChange={handleScaleChange}
+              onPoiClick={handlePoiClick}
+              onPoiRightClick={handlePoiClick}
+            />
+          ) : (
+            <MapView
+              route={activeRoute}
+              showRoute={showRoute}
+              isFetching={isFetching}
+              highlightDistance={highlightDistance}
+              activeLayers={activeLayers}
+              basemapId={basemapId}
+              poiMarkers={poiMarkers}
+              weatherStartTimeMs={startTimeMs}
+              weatherSegments={weatherSegments}
+              onWebGLFallback={() => setUseLeaflet(true)}
+              onMapFlyTo={(fn) => { mapFlyToRef.current = fn; }}
+              onMapFitBounds={(fn) => { mapFitBoundsRef.current = fn; }}
+              onBboxChange={handleBboxChange}
+              onScaleChange={handleScaleChange}
+              onPoiClick={handlePoiClick}
+              onPoiRightClick={handlePoiClick}
+            />
+          )}
+          {useLeaflet && (
+            <div className="absolute bottom-16 left-3 z-[1000] rounded bg-amber-100/90 px-2 py-1 text-[10px] font-medium text-amber-800 shadow-md backdrop-blur">
+              Kompatibilitätsmodus (ohne WebGL/3D) — Basiskarten, Ebenen &amp; Routen funktionieren
+            </div>
+          )}
           <div className="absolute top-2 right-2 z-[1000] flex gap-2">
             <GpxImportButton />
           </div>
