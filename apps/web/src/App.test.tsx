@@ -30,6 +30,7 @@ vi.mock('maplibre-gl', () => {
       getSouth: () => 50, getWest: () => 11, getNorth: () => 52, getEast: () => 13,
     }),
     getZoom: vi.fn().mockReturnValue(12),
+    getStyle: vi.fn().mockReturnValue({ layers: [] }),
   });
 
   const makeMarker = () => {

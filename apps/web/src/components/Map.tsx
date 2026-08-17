@@ -185,6 +185,12 @@ export default function MapView(props: MapProps) {
       fn();
       return;
     }
+    // Style may already be loaded synchronously (e.g. inline style)
+    if (map.isStyleLoaded() && mapRef.current === map) {
+      styleLoadedRef.current = true;
+      fn();
+      return;
+    }
     pendingStyleOpsRef.current.push(fn);
   }, []);
 
@@ -278,11 +284,18 @@ export default function MapView(props: MapProps) {
 
     // Flush all queued style operations exactly once when the style is ready.
     // Registered right after map creation — safe even if 'load' fires early.
+    // One failing op must not block the rest (e.g. the basemap).
     map.once('load', () => {
       styleLoadedRef.current = true;
       const ops = pendingStyleOpsRef.current;
       pendingStyleOpsRef.current = [];
-      for (const op of ops) op();
+      for (const op of ops) {
+        try {
+          op();
+        } catch (e) {
+          console.error('[map] style op failed', e);
+        }
+      }
     });
 
     return () => {
@@ -301,7 +314,9 @@ export default function MapView(props: MapProps) {
     const bm = getBasemap(basemapId ?? DEFAULT_BASEMAP_ID);
     whenStyleReady(map, () => {
       // Remove layer first, then source (order-independent of MapLibre's
-      // removeSource-in-use behavior), then re-add and move to the bottom.
+      // removeSource-in-use behavior), then re-add. The basemap must sit
+      // ABOVE the opaque background layer but BELOW everything else —
+      // the background layer is excluded from the move target.
       if (map.getLayer('basemap')) map.removeLayer('basemap');
       if (map.getSource('basemap')) map.removeSource('basemap');
       map.addSource('basemap', {
@@ -311,8 +326,10 @@ export default function MapView(props: MapProps) {
         maxzoom: bm.maxZoom ?? 19,
       });
       map.addLayer({ id: 'basemap', type: 'raster', source: 'basemap' });
-      const firstOther = map.getStyle().layers.find((l) => l.id !== 'basemap');
-      if (firstOther) map.moveLayer('basemap', firstOther.id);
+      const aboveId = map
+        .getStyle()
+        .layers.find((l) => l.id !== 'basemap' && l.id !== 'background');
+      if (aboveId) map.moveLayer('basemap', aboveId.id);
     });
   }, [basemapId]);
 
